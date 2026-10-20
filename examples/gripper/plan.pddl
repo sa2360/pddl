@@ -1,0 +1,7 @@
+; solution for gripper-2
+(pick ball1 rooma left)
+(pick ball2 rooma right)
+(move rooma roomb)
+(drop ball1 roomb left)
+(drop ball2 roomb right)
+; cost = 5

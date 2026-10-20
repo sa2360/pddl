@@ -1,0 +1,20 @@
+(define (domain matchcellar)
+  (:requirements :strips :typing :action-costs)
+  (:types match fuse)
+  (:predicates
+    (handfree)
+    (unused ?m - match)
+    (light ?m - match)
+    (fuse-unlit ?f - fuse)
+    (fuse-lit ?f - fuse))
+  (:functions (total-cost) - number)
+  (:action light-match
+    :parameters (?m - match)
+    :precondition (and (unused ?m) (handfree))
+    :effect (and (not (unused ?m)) (light ?m)
+                 (increase (total-cost) 1)))
+  (:action mend-fuse
+    :parameters (?m - match ?f - fuse)
+    :precondition (and (light ?m) (fuse-unlit ?f))
+    :effect (and (not (light ?m)) (fuse-lit ?f)
+                 (increase (total-cost) 1))))
