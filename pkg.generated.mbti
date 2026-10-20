@@ -1,0 +1,251 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "sa2360/pddl"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn action_is_applicable(GroundAction, State) -> Bool
+
+pub fn apply_action(GroundAction, State) -> State
+
+pub fn condition_holds(Array[Array[Literal]], State) -> Bool
+
+pub fn ground(Domain, Problem) -> GroundProblem raise PddlError
+
+pub fn heuristic_value(GroundProblem, HeuristicKind, State) -> Int
+
+pub fn parse_domain(String) -> Domain raise PddlError
+
+pub fn parse_problem(String) -> Problem raise PddlError
+
+pub fn solve(GroundProblem, HeuristicKind, SearchAlgorithm, max_expanded? : Int, max_generated? : Int) -> SearchResult
+
+pub fn validate(Domain, Problem, String) -> ValidationReport raise PddlError
+
+pub fn validate_plan(GroundProblem, String) -> ValidationReport
+
+// Errors
+pub suberror PddlError {
+  PddlError(PddlErrorData)
+} derive(@debug.Debug)
+pub fn PddlError::message(Self) -> String
+pub impl Show for PddlError
+
+// Types and methods
+pub(all) struct Action {
+  name : String
+  params : Array[TypedName]
+  precondition : Formula
+  effect : Effect
+} derive(Eq, @debug.Debug)
+
+pub(all) struct Domain {
+  name : String
+  requirements : Array[String]
+  types : Array[TypeDecl]
+  constants : Array[TypedName]
+  predicates : Array[Predicate]
+  functions : Array[FunctionDecl]
+  actions : Array[Action]
+} derive(Eq, @debug.Debug)
+
+pub(all) enum Effect {
+  AddEffect(PAtom)
+  DeleteEffect(PAtom)
+  AndEffect(Array[Effect])
+  ForallEffect(Array[TypedName], Effect)
+  WhenEffect(Formula, Effect)
+  IncreaseEffect(String, Int)
+} derive(Eq, @debug.Debug)
+
+pub(all) enum Formula {
+  Atom(PAtom)
+  Not(Formula)
+  And(Array[Formula])
+  Or(Array[Formula])
+  Imply(Formula, Formula)
+  Exists(Array[TypedName], Formula)
+  Forall(Array[TypedName], Formula)
+  Equal(Term, Term)
+} derive(Eq, @debug.Debug)
+
+pub(all) struct FunctionDecl {
+  name : String
+  params : Array[TypedName]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct GroundAction {
+  mut id : Int
+  name : String
+  args : Array[String]
+  precondition : Array[Array[Literal]]
+  effects : Array[GroundEffect]
+  cost : Int
+} derive(Eq, @debug.Debug)
+pub fn GroundAction::render(Self) -> String
+
+pub(all) struct GroundAtom {
+  predicate : String
+  args : Array[String]
+} derive(Eq, @debug.Debug)
+pub fn GroundAtom::render(Self) -> String
+
+pub(all) struct GroundEffect {
+  condition : Array[Array[Literal]]
+  adds : Array[Int]
+  deletes : Array[Int]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct GroundProblem {
+  domain_name : String
+  problem_name : String
+  objects : Array[TypedName]
+  atoms : Array[GroundAtom]
+  actions : Array[GroundAction]
+  initial : State
+  initial_cost : Int
+  goal : Array[Array[Literal]]
+  uses_action_costs : Bool
+  has_metric : Bool
+} derive(@debug.Debug)
+pub fn GroundProblem::atom_text(Self, Int) -> String
+pub fn GroundProblem::goal_holds(Self, State) -> Bool
+
+pub(all) enum HeuristicKind {
+  Blind
+  GoalCount
+  HMax
+  HAdd
+  HFF
+} derive(Eq, @debug.Debug)
+pub fn HeuristicKind::name(Self) -> String
+pub fn HeuristicKind::parse(String) -> Self?
+
+pub(all) enum InitElem {
+  InitFact(PAtom)
+  InitCost(Int)
+} derive(Eq, @debug.Debug)
+
+pub(all) enum Literal {
+  Positive(Int)
+  Negative(Int)
+} derive(Eq, @debug.Debug)
+pub fn Literal::holds(Self, State) -> Bool
+
+pub(all) enum Metric {
+  MinimizeTotalCost
+} derive(Eq, @debug.Debug)
+
+pub(all) struct PAtom {
+  name : String
+  args : Array[Term]
+} derive(Eq, @debug.Debug)
+
+pub(all) enum PddlErrorData {
+  SyntaxError(Position, String)
+  Unsupported(Position, String)
+  InvalidModel(String)
+} derive(Eq, @debug.Debug)
+
+pub(all) struct Position {
+  line : Int
+  column : Int
+} derive(Eq, @debug.Debug)
+
+pub(all) struct Predicate {
+  name : String
+  params : Array[TypedName]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct Problem {
+  name : String
+  domain_name : String
+  requirements : Array[String]
+  objects : Array[TypedName]
+  init : Array[InitElem]
+  goal : Formula
+  metric : Metric?
+} derive(Eq, @debug.Debug)
+
+pub(all) enum SearchAlgorithm {
+  GBFS
+  AStar
+  WeightedAStar(Int)
+} derive(Eq, @debug.Debug)
+pub fn SearchAlgorithm::name(Self) -> String
+pub fn SearchAlgorithm::parse(String) -> Self?
+
+pub(all) struct SearchResult {
+  status : SearchStatus
+  plan : Array[Int]
+  cost : Int
+  expanded : Int
+  generated : Int
+} derive(@debug.Debug)
+pub fn SearchResult::is_solved(Self) -> Bool
+pub fn SearchResult::render_plan(Self, GroundProblem) -> String
+
+pub(all) enum SearchStatus {
+  Solved
+  Exhausted
+  NodeLimitReached
+} derive(Eq, @debug.Debug)
+
+pub(all) struct State {
+  words : Array[Int]
+} derive(@debug.Debug)
+pub fn State::add(Self, Int) -> Unit
+pub fn State::contains(Self, Int) -> Bool
+pub fn State::copy(Self) -> Self
+pub fn State::empty(Int) -> Self
+pub fn State::key(Self) -> String
+pub fn State::num_true(Self) -> Int
+pub fn State::remove(Self, Int) -> Unit
+
+pub(all) enum Term {
+  Var(String)
+  Const(String)
+} derive(Eq, @debug.Debug)
+
+pub(all) struct TypeDecl {
+  name : String
+  parent : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct TypedName {
+  name : String
+  type_name : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ValidationIssue {
+  kind : ValidationIssueKind
+  line : Int
+  step : Int
+  message : String
+} derive(@debug.Debug)
+
+pub(all) enum ValidationIssueKind {
+  PlanSyntax
+  UnknownAction
+  Inapplicable
+  GoalNotReached
+  CostMismatch
+} derive(Eq, @debug.Debug)
+pub fn ValidationIssueKind::name(Self) -> String
+
+pub(all) struct ValidationReport {
+  valid : Bool
+  steps : Int
+  executed : Int
+  cost : Int
+  declared_cost : Int?
+  issues : Array[ValidationIssue]
+} derive(@debug.Debug)
+pub fn ValidationReport::message(Self) -> String
+pub fn ValidationReport::to_json(Self) -> String
+
+// Type aliases
+
+// Traits

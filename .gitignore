@@ -1,0 +1,6 @@
+_build/
+.mooncakes/
+.DS_Store
+*.wasm
+*.exe
+*.plan
