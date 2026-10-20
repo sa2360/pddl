@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MoonBit
+        uses: hustcer/setup-moonbit@v1
+
+      - name: Show toolchain versions
+        run: moon version --all
+
+      - name: Check formatting
+        run: moon fmt --check
+
+      - name: Type check
+        run: moon check --deny-warn
+
+      - name: Test (wasm)
+        run: moon test --deny-warn
+
+      - name: Test (native)
+        run: moon test --target native --deny-warn
+
+      - name: Build native CLI
+        run: moon build --target native cmd/moonpddl
+
+      - name: Validate bundled example plans
+        run: |
+          for dir in examples/*/; do
+            name=$(basename "$dir")
+            echo "::group::$name"
+            ./_build/native/debug/build/cmd/moonpddl/moonpddl validate \
+              "$dir/domain.pddl" "$dir/problem.pddl" "$dir/plan.pddl"
+            echo "::endgroup::"
+          done
+
+      - name: Solve blocksworld optimally
+        run: |
+          ./_build/native/debug/build/cmd/moonpddl/moonpddl solve \
+            examples/blocksworld/domain.pddl examples/blocksworld/problem.pddl \
+            -s astar -H hmax -q
