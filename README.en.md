@@ -1,5 +1,7 @@
 # moonpddl
 
+[![CI](https://github.com/sa2360/pddl/actions/workflows/ci.yml/badge.svg)](https://github.com/sa2360/pddl/actions/workflows/ci.yml)
+
 **A PDDL planning engine and independent plan validator written in MoonBit.**
 
 moonpddl parses standard PDDL domain and problem files, grounds them into an

@@ -1,5 +1,7 @@
 # moonpddl
 
+[![CI](https://github.com/sa2360/pddl/actions/workflows/ci.yml/badge.svg)](https://github.com/sa2360/pddl/actions/workflows/ci.yml)
+
 **用 MoonBit 编写的 PDDL 规划引擎与独立计划验证器。**
 
 moonpddl 读取标准 PDDL 领域与问题文件，将其编译为显式接地的状态空间任务，
