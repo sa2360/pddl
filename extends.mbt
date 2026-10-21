@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 // E0079: trait methods are no longer promoted to regular methods implicitly.
+
 ///|
 pub extend TypedName with Eq::{not_equal, equal}
 
