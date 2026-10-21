@@ -4,7 +4,7 @@
 
 - 项目名称：moonpddl —— 基于 MoonBit 的 PDDL 规划与计划验证工具
 - 参赛者：sa2360
-- 联系方式：GitHub:@sa2360 qq邮箱:2360682759@qq.com
+- 联系方式：GitHub:sa2360 qq邮箱:2360682759@qq.com
 - GitHub 仓库链接：https://github.com/sa2360/pddl
 - 项目方向：MoonBit 经典 AI 规划 / 规划算法与验证工具
 - 是否为移植项目：否
