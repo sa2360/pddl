@@ -122,6 +122,132 @@ test "search includes the initial total cost" {
 }
 
 ///|
+test "action costs beyond 32 bits stay exact" {
+  let domain_source =
+    #|(define (domain big-cost)
+    #|  (:requirements :strips :action-costs)
+    #|  (:predicates (done))
+    #|  (:functions (total-cost) - number)
+    #|  (:action finish
+    #|    :parameters ()
+    #|    :precondition ()
+    #|    :effect (and (done)
+    #|                 (increase (total-cost) 1000000000)
+    #|                 (increase (total-cost) 1000000000)
+    #|                 (increase (total-cost) 1000000000))))
+  let problem_source =
+    #|(define (problem big-cost-1)
+    #|  (:domain big-cost)
+    #|  (:init (= (total-cost) 0))
+    #|  (:goal (done))
+    #|  (:metric minimize (total-cost)))
+  let problem = try! ground(
+    parse_domain(domain_source),
+    parse_problem(problem_source),
+  )
+  @test.assert_eq(problem.actions[0].cost, 3_000_000_000L)
+  let result = solve(problem, HMax, AStar)
+  @test.assert_eq(result.status, Solved)
+  @test.assert_eq(result.cost, 3_000_000_000L)
+}
+
+///|
+test "sentinel-sized action costs remain reachable" {
+  let domain_source =
+    #|(define (domain billion-cost)
+    #|  (:requirements :strips :action-costs)
+    #|  (:predicates (done))
+    #|  (:functions (total-cost) - number)
+    #|  (:action finish
+    #|    :parameters ()
+    #|    :precondition ()
+    #|    :effect (and (done) (increase (total-cost) 1000000000))))
+  let problem_source =
+    #|(define (problem billion-cost-1)
+    #|  (:domain billion-cost)
+    #|  (:init (= (total-cost) 1000000009))
+    #|  (:goal (done))
+    #|  (:metric minimize (total-cost)))
+  let problem = try! ground(
+    parse_domain(domain_source),
+    parse_problem(problem_source),
+  )
+  let result = solve(problem, HFF, AStar)
+  @test.assert_eq(result.status, Solved)
+  @test.assert_eq(result.cost, 2_000_000_009L)
+  @test.assert_eq(result.plan.length(), 1)
+}
+
+///|
+test "cumulative plan cost is not capped" {
+  let domain_source =
+    #|(define (domain two-step-cost)
+    #|  (:requirements :strips :action-costs)
+    #|  (:predicates (middle) (done))
+    #|  (:functions (total-cost) - number)
+    #|  (:action first
+    #|    :parameters ()
+    #|    :precondition ()
+    #|    :effect (and (middle) (increase (total-cost) 600000000)))
+    #|  (:action second
+    #|    :parameters ()
+    #|    :precondition (middle)
+    #|    :effect (and (done) (increase (total-cost) 600000000))))
+  let problem_source =
+    #|(define (problem two-step-cost-1)
+    #|  (:domain two-step-cost)
+    #|  (:init (= (total-cost) 0))
+    #|  (:goal (done))
+    #|  (:metric minimize (total-cost)))
+  let problem = try! ground(
+    parse_domain(domain_source),
+    parse_problem(problem_source),
+  )
+  let result = solve(problem, HFF, AStar)
+  @test.assert_eq(result.status, Solved)
+  @test.assert_eq(result.cost, 1_200_000_000L)
+  @test.assert_eq(result.plan.length(), 2)
+}
+
+///|
+test "greedy best first orders by h, not by g plus h" {
+  let domain_source =
+    #|(define (domain gbfs-demo)
+    #|  (:requirements :strips :action-costs)
+    #|  (:predicates (start) (p) (done))
+    #|  (:functions (total-cost) - number)
+    #|  (:action expensive
+    #|    :parameters ()
+    #|    :precondition (start)
+    #|    :effect (and (done) (increase (total-cost) 100)))
+    #|  (:action begin-cheap
+    #|    :parameters ()
+    #|    :precondition (start)
+    #|    :effect (and (p) (increase (total-cost) 1)))
+    #|  (:action finish-cheap
+    #|    :parameters ()
+    #|    :precondition (p)
+    #|    :effect (and (done) (increase (total-cost) 10))))
+  let problem_source =
+    #|(define (problem gbfs-demo-1)
+    #|  (:domain gbfs-demo)
+    #|  (:init (start) (= (total-cost) 0))
+    #|  (:goal (done))
+    #|  (:metric minimize (total-cost)))
+  let problem = try! ground(
+    parse_domain(domain_source),
+    parse_problem(problem_source),
+  )
+  let greedy = solve(problem, HFF, GBFS)
+  @test.assert_eq(greedy.status, Solved)
+  @test.assert_eq(greedy.cost, 100)
+  @test.assert_eq(greedy.plan.length(), 1)
+  let optimal = solve(problem, HFF, AStar)
+  @test.assert_eq(optimal.status, Solved)
+  @test.assert_eq(optimal.cost, 11)
+}
+
+///|
 test "goal that already holds yields an empty plan" {
   let problem_source =
     #|(define (problem blocks-empty)

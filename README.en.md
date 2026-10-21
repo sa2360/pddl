@@ -51,10 +51,10 @@ the MoonBit ecosystem rather than wrapping an existing MoonBit package.
   best-g deduplication, node reopening in A\*, and configurable budgets.
 - **Independent validator**: re-parses plan text, re-executes every step, and
   reports unknown actions, bad arguments, inapplicable steps, unreached goals,
-  and `; cost = N` annotation mismatches.
+  and `; cost = N` annotation mismatches (which invalidate the plan).
 - **CLI and JSON**: `solve`, `validate`, `check`, and `ground` subcommands with
   stable exit codes and one-line JSON output.
-- **Reproducible project**: four runnable examples, 41 unit/integration tests,
+- **Reproducible project**: four runnable examples, 51 unit/integration tests,
   wasm and native targets, and optional benchmarks.
 
 ## Quick start
@@ -162,7 +162,7 @@ includes the initial `total-cost` from `:init`.
 | Types | Single-inheritance hierarchy; arguments accept subtypes |
 | Formulas | `and`, `or`, `not`, `imply`, `exists`, `forall`, `=`, arbitrarily nested |
 | Effects | `and`, `not`, `forall`, `when`, `(increase (total-cost) N)` |
-| Costs | `(total-cost)` only, non-negative integers, `:metric minimize (total-cost)` |
+| Costs | `(total-cost)` only, non-negative integers with a 10^12 per-action cap, `:metric minimize (total-cost)` |
 | Plan text | One action per line, optional parentheses, case-insensitive, `;` comments |
 
 Unsupported constructs are rejected explicitly: durative actions, numeric
@@ -178,7 +178,8 @@ requirement flags.
    deletes and adds are collected; deletes apply first and **adds win**.
 3. Cost mode is enabled by `:action-costs`, a `total-cost` declaration, or a
    `:metric`; actions then start at cost 0 and accumulate `increase` effects.
-   Otherwise actions have unit cost 1. Conditional costs are rejected.
+   Otherwise actions have unit cost 1. Conditional costs are rejected. Costs
+   are accumulated as `Int64`, and grounding checks the per-action limit.
 4. Goals are also compiled to DNF and evaluated over the grounded atom table.
 
 ## Architecture
@@ -238,7 +239,7 @@ moon run cmd/moonpddl --target native -- validate \
 ## Testing and benchmarks
 
 ```bash
-moon test                                      # 41 tests on wasm
+moon test                                      # 51 tests on wasm
 moon test --target native                      # same suite on native
 moon test --include-skipped -f "benchmarks:*"  # optional benchmarks
 ```
@@ -250,7 +251,7 @@ from a local wasm debug build (10 runs, microseconds, indicative only):
 | --- | --- |
 | Parse domain + problem | ≈ 116 µs |
 | Ground (24 actions) | ≈ 188 µs |
-| GBFS + `hff` solve | ≈ 248 µs |
+| GBFS + `hff` solve | ≈ 220 µs |
 | Validate a 4-step plan | ≈ 22 µs |
 
 CI runs `moon fmt --check`, `moon check --deny-warn`, wasm and native tests, a
@@ -264,7 +265,10 @@ native CLI build, and validates every example plan.
 - Search is forward best-first; there is no semantic pruning, landmark
   heuristic, SAS+ compilation, or symbolic search yet.
 - Numeric support is limited to `total-cost`; durative actions, continuous
-  effects, and PDDL+ temporal models are not supported.
+  effects, and PDDL+ temporal models are not supported. A single action cost is
+  capped at 10^12, and plan costs are accumulated as 64-bit signed integers.
+- GBFS orders by `h` and is not optimal; use admissible `hmax + A*` when
+  optimality matters.
 - The validator replays plans independently but shares the grounding semantics
   with the planner; it does not re-derive domain semantics on its own.
 
@@ -275,7 +279,7 @@ post-processing, a browser/wasm demo, and broader PDDL 3 constraint support.
 
 An AI coding assistant (Qoder) helped implement code, design tests, write
 documentation, and debug the CLI. All committed code was checked locally with
-`moon check`, the 41-test suite, wasm/native runs, and validation of all four
+`moon check`, the 51-test suite, wasm/native runs, and validation of all four
 example plans. The author is responsible for the final design and correctness.
 
 ## License

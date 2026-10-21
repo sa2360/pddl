@@ -14,7 +14,7 @@ pub fn condition_holds(Array[Array[Literal]], State) -> Bool
 
 pub fn ground(Domain, Problem) -> GroundProblem raise PddlError
 
-pub fn heuristic_value(GroundProblem, HeuristicKind, State) -> Int
+pub fn heuristic_value(GroundProblem, HeuristicKind, State) -> Int64
 
 pub fn parse_domain(String) -> Domain raise PddlError
 
@@ -57,7 +57,7 @@ pub(all) enum Effect {
   AndEffect(Array[Effect])
   ForallEffect(Array[TypedName], Effect)
   WhenEffect(Formula, Effect)
-  IncreaseEffect(String, Int)
+  IncreaseEffect(String, Int64)
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Formula {
@@ -82,7 +82,7 @@ pub(all) struct GroundAction {
   args : Array[String]
   precondition : Array[Array[Literal]]
   effects : Array[GroundEffect]
-  cost : Int
+  cost : Int64
 } derive(Eq, @debug.Debug)
 pub fn GroundAction::render(Self) -> String
 
@@ -105,7 +105,7 @@ pub(all) struct GroundProblem {
   atoms : Array[GroundAtom]
   actions : Array[GroundAction]
   initial : State
-  initial_cost : Int
+  initial_cost : Int64
   goal : Array[Array[Literal]]
   uses_action_costs : Bool
   has_metric : Bool
@@ -125,7 +125,7 @@ pub fn HeuristicKind::parse(String) -> Self?
 
 pub(all) enum InitElem {
   InitFact(PAtom)
-  InitCost(Int)
+  InitCost(Int64)
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Literal {
@@ -180,7 +180,7 @@ pub fn SearchAlgorithm::parse(String) -> Self?
 pub(all) struct SearchResult {
   status : SearchStatus
   plan : Array[Int]
-  cost : Int
+  cost : Int64
   expanded : Int
   generated : Int
 } derive(@debug.Debug)
@@ -239,8 +239,8 @@ pub(all) struct ValidationReport {
   valid : Bool
   steps : Int
   executed : Int
-  cost : Int
-  declared_cost : Int?
+  cost : Int64
+  declared_cost : Int64?
   issues : Array[ValidationIssue]
 } derive(@debug.Debug)
 pub fn ValidationReport::message(Self) -> String

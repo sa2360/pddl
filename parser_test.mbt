@@ -261,3 +261,59 @@ test "error: missing action keyword value" {
   }
   @test.assert_eq(err.message().contains("missing value"), true)
 }
+
+///|
+test "error: effect keyword used as a predicate name" {
+  let err = try {
+    ignore(parse_domain("(define (domain d) (:predicates (when) (increase)))"))
+    abort("expected a parse error")
+  } catch {
+    err => err
+  }
+  @test.assert_eq(err.message().contains("reserved"), true)
+  @test.assert_eq(err.message().contains("when"), true)
+}
+
+///|
+test "error: duplicate total-cost declaration" {
+  let err = try {
+    ignore(
+      parse_domain("(define (domain d) (:functions (total-cost) (total-cost)))"),
+    )
+    abort("expected a parse error")
+  } catch {
+    err => err
+  }
+  @test.assert_eq(err.message().contains("duplicate function"), true)
+}
+
+///|
+test "error: empty functions section" {
+  let err = try {
+    ignore(parse_domain("(define (domain d) (:functions - number))"))
+    abort("expected a parse error")
+  } catch {
+    err => err
+  }
+  @test.assert_eq(err.message().contains("empty ':functions'"), true)
+}
+
+///|
+test "error: cost above the supported maximum" {
+  let source =
+    #|(define (domain d)
+    #|  (:requirements :action-costs)
+    #|  (:predicates (done))
+    #|  (:functions (total-cost) - number)
+    #|  (:action a
+    #|    :parameters ()
+    #|    :precondition ()
+    #|    :effect (and (done) (increase (total-cost) 1000000000001))))
+  let err = try {
+    ignore(parse_domain(source))
+    abort("expected a parse error")
+  } catch {
+    err => err
+  }
+  @test.assert_eq(err.message().contains("non-negative integer"), true)
+}

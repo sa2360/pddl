@@ -221,6 +221,35 @@ test "error: conditional action cost" {
 }
 
 ///|
+test "error: action cost above the supported maximum" {
+  let domain_source =
+    #|(define (domain d)
+    #|  (:predicates (done))
+    #|  (:functions (total-cost) - number)
+    #|  (:action a
+    #|    :parameters ()
+    #|    :precondition ()
+    #|    :effect (and (done)
+    #|                 (increase (total-cost) 1000000000000)
+    #|                 (increase (total-cost) 1000000000000))))
+  let problem_source =
+    #|(define (problem p)
+    #|  (:domain d)
+    #|  (:init (= (total-cost) 0))
+    #|  (:goal (done))
+    #|  (:metric minimize (total-cost)))
+  let domain = try! parse_domain(domain_source)
+  let problem = try! parse_problem(problem_source)
+  let err = try {
+    ignore(ground(domain, problem))
+    abort("expected a grounding error")
+  } catch {
+    err => err
+  }
+  @test.assert_eq(err.message().contains("exceeds the supported maximum"), true)
+}
+
+///|
 test "error: problem targets another domain" {
   let domain_source =
     #|(define (domain d1)

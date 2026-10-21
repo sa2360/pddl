@@ -51,10 +51,10 @@ MoonBit 生态。
 - **三种搜索策略**：GBFS、A\*、加权 A\*（WA\*）。二叉堆开放表、`best-g`
   去重、A\* 更优路径重开、可配置扩展/生成上限。
 - **独立验证器**：不依赖搜索轨迹，重新解析计划文本并逐步执行；报告未知动作、
-  错误参数、不可应用步骤、未达成目标，以及 `; cost = N` 标注不一致。
+  错误参数、不可应用步骤、未达成目标，以及 `; cost = N` 标注不一致（判为无效）。
 - **CLI 与 JSON**：`solve` / `validate` / `check` / `ground` 四个子命令，
   稳定退出码与机器可读输出，适合脚本与 CI 集成。
-- **可复现工程**：四个可运行示例、41 个单元/集成测试、跨 wasm 与 native
+- **可复现工程**：四个可运行示例、51 个单元/集成测试、跨 wasm 与 native
   目标验证、可选的性能基准。
 
 ## 快速开始
@@ -216,7 +216,7 @@ inspect(report.valid, content="true")
 | 类型 | 单继承类型层次；对象类型按父类型兼容 |
 | 公式 | `and`、`or`、`not`、`imply`、`exists`、`forall`、`=`，可任意嵌套 |
 | 效果 | `and`、`not`、`forall`、`when`、`(increase (total-cost) N)` |
-| 代价 | 仅 `(total-cost)`；非负整数；`:metric minimize (total-cost)` |
+| 代价 | 仅 `(total-cost)`；非负整数，单个动作的累计代价最大 10^12；`:metric minimize (total-cost)` |
 | 计划文本 | 每行一个动作，括号可省略，大小写不敏感，`;` 后为注释 |
 
 明确拒绝而不静默忽略的构造包括：durative actions、除 `total-cost` 外的数值
@@ -230,7 +230,8 @@ fluent、`decrease`/`assign`/`scale-up`/`scale-down`、派生谓词、偏好与�
    后添加，**添加优先**。
 3. **代价模式**：出现 `:action-costs`、`total-cost` 声明或 `:metric` 时进入
    代价模式，动作基础代价为 0，由 `increase` 累加；否则为经典单位代价，每个
-   动作代价为 1。条件式代价（`when` 内的 `increase`）会被拒绝。
+   动作代价为 1。条件式代价（`when` 内的 `increase`）会被拒绝。代价在内部用
+   `Int64` 表示，接地时会检查单个动作的累加上限。
 4. **目标**同样编译为 DNF；初始状态与目标都只依赖接地原子表。
 
 ## 架构
@@ -291,7 +292,7 @@ moon run cmd/moonpddl --target native -- validate \
 ## 测试与基准
 
 ```bash
-moon test                     # 41 个测试，wasm
+moon test                     # 51 个测试，wasm
 moon test --target native     # 同一套测试，native
 moon test --include-skipped -f "benchmarks:*"   # 可选性能基准
 ```
@@ -304,7 +305,7 @@ moon test --include-skipped -f "benchmarks:*"   # 可选性能基准
 | --- | --- |
 | 解析领域 + 问题 | ≈ 116 µs |
 | 接地（24 个动作） | ≈ 188 µs |
-| GBFS + `hff` 求解 | ≈ 248 µs |
+| GBFS + `hff` 求解 | ≈ 220 µs |
 | 验证 4 步计划 | ≈ 22 µs |
 
 CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 Ubuntu 上执行
@@ -317,7 +318,9 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 Ubuntu 上执行
   8,192 个 DNF 分支。尚无基于可达性的静态剪枝。
 - 搜索为前向最佳优先；尚无语义剪枝、landmark、SAS+ 或符号搜索。
 - 数值支持限定于 `total-cost`，不支持 durative actions、连续效果或 PDDL+
-  时态模型。
+  时态模型。单个动作代价上限为 10^12，计划代价用 64 位有符号整数累计。
+- GBFS 按启发式值 `h` 排序，不保证最优；需要最优解时使用可采纳的
+  `hmax + A*`。
 - 计划验证基于同一套接地语义；它会独立重放计划，但不会重新推导领域语义。
 
 后续计划包括：接地相关性剪枝、landmark 启发式、计划后处理（去除冗余步骤）、
@@ -326,7 +329,7 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 Ubuntu 上执行
 ## 开发说明与 AI 使用披露
 
 本项目在开发过程中使用了 AI 编程助手（Qoder）协助代码实现、测试用例设计、
-文档撰写与命令行调试。所有提交代码均经过本地 `moon check`、41 个测试、
+文档撰写与命令行调试。所有提交代码均经过本地 `moon check`、51 个测试、
 wasm/native 双后端运行以及四个示例计划验证；作者对最终代码、设计与正确性负责。
 
 欢迎提交 issue 与 PR。

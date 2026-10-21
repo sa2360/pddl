@@ -223,7 +223,10 @@ fn parse_type_section(
 
 ///|
 fn is_reserved_formula_word(name : String) -> Bool {
-  let reserved = ["and", "or", "not", "imply", "exists", "forall", "="]
+  let reserved = [
+    "and", "or", "not", "imply", "exists", "forall", "=", "when", "increase", "decrease",
+    "assign", "scale-up", "scale-down",
+  ]
   reserved.contains(name)
 }
 
@@ -267,8 +270,10 @@ fn parse_predicates(
 ///|
 fn parse_functions(
   items : ArrayView[Sexp],
+  section_pos : Position,
 ) -> Array[FunctionDecl] raise PddlError {
   let result : Array[FunctionDecl] = []
+  let seen : Map[String, Bool] = Map([])
   let mut i = 0
   while i < items.length() {
     match items[i] {
@@ -288,6 +293,10 @@ fn parse_functions(
             decl_pos, "arguments on total-cost; it must be 0-ary",
           )
         }
+        if seen.contains(name) {
+          raise syntax_error(name_pos, "duplicate function '\{name}'")
+        }
+        seen.set(name, true)
         result.push({ name: "total-cost", params: [], })
         i += 1
       }
@@ -316,6 +325,9 @@ fn parse_functions(
           "expected a function declaration, found variable '?\{name}'",
         )
     }
+  }
+  if result.length() == 0 {
+    raise syntax_error(section_pos, "empty ':functions' section")
   }
   result
 }
@@ -437,7 +449,7 @@ pub fn parse_domain(source : String) -> Domain raise PddlError {
     } else if key == ":predicates" {
       predicates = parse_predicates(section[1:])
     } else if key == ":functions" {
-      functions = parse_functions(section[1:])
+      functions = parse_functions(section[1:], section_pos)
     } else if key == ":action" {
       actions.push(parse_action(section, section_pos))
     } else {
@@ -705,19 +717,20 @@ fn parse_effect(node : Sexp) -> Effect raise PddlError {
 }
 
 ///|
-fn parse_int(text : String) -> Int? {
+fn parse_int(text : String) -> Int64? {
   if text == "" {
     return None
   }
-  let mut value = 0
+  let mut value = 0L
   for c in text.to_array() {
     if c < '0' || c > '9' {
       return None
     }
-    if value > 100_000_000 {
+    let digit = Int64::from_int(c.to_int() - 48)
+    if value > (MAX_COST_VALUE - digit) / 10L {
       return None
     }
-    value = value * 10 + (c.to_int() - 48)
+    value = value * 10L + digit
   }
   Some(value)
 }

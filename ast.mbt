@@ -38,6 +38,11 @@ pub(all) enum Formula {
 } derive(Eq, Debug)
 
 ///|
+/// Largest numeric value accepted in a cost field. Keeping costs in `Int64`
+/// avoids the 32-bit wraparound that `Int` would cause on large instances.
+const MAX_COST_VALUE : Int64 = 1_000_000_000_000L
+
+///|
 /// An action effect.
 pub(all) enum Effect {
   AddEffect(PAtom)
@@ -46,7 +51,7 @@ pub(all) enum Effect {
   ForallEffect(Array[TypedName], Effect)
   WhenEffect(Formula, Effect)
   /// `(increase (total-cost) N)`.
-  IncreaseEffect(String, Int)
+  IncreaseEffect(String, Int64)
 } derive(Eq, Debug)
 
 ///|
@@ -95,7 +100,7 @@ pub(all) struct Domain {
 /// One entry of a problem's `:init` section.
 pub(all) enum InitElem {
   InitFact(PAtom)
-  InitCost(Int)
+  InitCost(Int64)
 } derive(Eq, Debug)
 
 ///|

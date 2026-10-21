@@ -151,12 +151,31 @@ test "validate flags a mismatched cost comment" {
     #|(stack a b)
     #|; cost = 99
   let report = validate_plan(problem, source)
-  @test.assert_eq(report.valid, true)
+  @test.assert_eq(report.valid, false)
   @test.assert_eq(report.cost, 4)
   @test.assert_eq(report.declared_cost, Some(99))
   @test.assert_eq(report.issues.length(), 1)
   @test.assert_eq(report.issues[0].kind, CostMismatch)
-  @test.assert_eq(report.message().contains("warning"), true)
+  @test.assert_eq(report.message(), "plan invalid")
+}
+
+///|
+test "validate rejects a malformed cost comment" {
+  let problem = try! ground(
+    parse_domain(blocksworld_domain),
+    parse_problem(blocksworld_problem),
+  )
+  let source =
+    #|(pick-up b)
+    #|(stack b c)
+    #|(pick-up a)
+    #|(stack a b)
+    #|; cost = -1
+  let report = validate_plan(problem, source)
+  @test.assert_eq(report.valid, false)
+  @test.assert_eq(report.issues.length(), 1)
+  @test.assert_eq(report.issues[0].kind, PlanSyntax)
+  @test.assert_eq(report.issues[0].message.contains("malformed cost"), true)
 }
 
 ///|

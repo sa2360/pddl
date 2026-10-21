@@ -85,10 +85,11 @@ fn parse_count(text : String) -> Int? {
     if c < '0' || c > '9' {
       return None
     }
-    value = value * 10 + (c.to_int() - 48)
-    if value > 1_000_000_000 {
+    let digit = c.to_int() - 48
+    if value > (1_000_000_000 - digit) / 10 {
       return None
     }
+    value = value * 10 + digit
   }
   Some(value)
 }

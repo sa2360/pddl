@@ -47,7 +47,7 @@ pub(all) struct GroundAction {
   args : Array[String]
   precondition : Array[Array[Literal]]
   effects : Array[GroundEffect]
-  cost : Int
+  cost : Int64
 } derive(Eq, Debug)
 
 ///|
@@ -65,7 +65,7 @@ pub(all) struct GroundProblem {
   atoms : Array[GroundAtom]
   actions : Array[GroundAction]
   initial : State
-  initial_cost : Int
+  initial_cost : Int64
   goal : Array[Array[Literal]]
   uses_action_costs : Bool
   has_metric : Bool
@@ -613,7 +613,7 @@ fn Compiler::quantifier_step(
 ///|
 priv struct EffectBuilder {
   effects : Array[GroundEffect]
-  mut cost : Int
+  mut cost : Int64
 }
 
 ///|
@@ -623,7 +623,7 @@ fn Compiler::compile_effects(
   env : Map[String, String],
   context : String,
 ) -> EffectBuilder raise PddlError {
-  let builder = { effects: [], cost: 0, }
+  let builder = { effects: [], cost: 0L, }
   let condition : Array[Array[Literal]] = [[]]
   self.collect_effect(effect, condition, env, context, builder)
   builder
@@ -678,8 +678,13 @@ fn Compiler::collect_effect(
           "conditional action cost in \{context}; increase must be unconditional",
         )
       }
-      if amount < 0 {
+      if amount < 0L {
         raise model_error("negative action cost in \{context}")
+      }
+      if builder.cost > MAX_COST_VALUE - amount {
+        raise model_error(
+          "action cost in \{context} exceeds the supported maximum \{MAX_COST_VALUE}",
+        )
       }
       builder.cost += amount
     }
@@ -770,7 +775,7 @@ fn Compiler::enumerate_params(
 fn Compiler::ground_action(
   self : Compiler,
   action : Action,
-  base_cost : Int,
+  base_cost : Int64,
 ) -> Array[GroundAction] raise PddlError {
   let context = "action '\{action.name}'"
   let bindings : Array[Map[String, String]] = []
@@ -788,6 +793,11 @@ fn Compiler::ground_action(
     let args : Array[String] = []
     for param in action.params {
       args.push(binding_of(binding, param.name, context))
+    }
+    if compiled_effects.cost > MAX_COST_VALUE - base_cost {
+      raise model_error(
+        "action cost in \{context} exceeds the supported maximum \{MAX_COST_VALUE}",
+      )
     }
     result.push({
       id: 0,
@@ -936,7 +946,7 @@ pub fn ground(
   }
   let empty_env : Map[String, String] = Map([])
   let init_ids : Array[Int] = []
-  let mut initial_cost = 0
+  let mut initial_cost = 0L
   let mut init_cost_seen = false
   for elem in problem.init {
     match elem {
@@ -950,7 +960,7 @@ pub fn ground(
             "multiple (= (total-cost) ...) assignments in :init",
           )
         }
-        if value < 0 {
+        if value < 0L {
           raise model_error("negative initial total-cost in :init")
         }
         initial_cost = value
@@ -962,7 +972,7 @@ pub fn ground(
   let uses_action_costs = domain_uses_action_costs(
     domain, problem, init_cost_seen,
   )
-  let base_cost = if uses_action_costs { 0 } else { 1 }
+  let base_cost = if uses_action_costs { 0L } else { 1L }
   let actions : Array[GroundAction] = []
   for action in domain.actions {
     for grounded in compiler.ground_action(action, base_cost) {

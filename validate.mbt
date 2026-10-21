@@ -24,15 +24,14 @@ pub(all) struct ValidationIssue {
 } derive(Debug)
 
 ///|
-/// The result of checking a plan. `valid` only reflects executability and
-/// goal satisfaction; a cost comment mismatch is reported as an issue but
-/// does not invalidate an otherwise correct plan.
+/// The result of checking a plan. A cost comment mismatch is an error: the
+/// plan file makes a claim that the validator could not reproduce.
 pub(all) struct ValidationReport {
   valid : Bool
   steps : Int
   executed : Int
-  cost : Int
-  declared_cost : Int?
+  cost : Int64
+  declared_cost : Int64?
   issues : Array[ValidationIssue]
 } derive(Debug)
 
@@ -44,8 +43,6 @@ pub fn ValidationReport::message(self : ValidationReport) -> String {
     } else {
       "plan valid: \{self.executed} step(s), cost \{self.cost}"
     }
-  } else if self.issues.length() > 0 {
-    self.issues[0].message
   } else {
     "plan invalid"
   }
@@ -130,7 +127,7 @@ priv struct PlanStep {
 priv struct ParsedPlan {
   steps : Array[PlanStep]
   issues : Array[ValidationIssue]
-  declared_cost : Int?
+  declared_cost : Int64?
   declared_line : Int
 }
 
@@ -143,29 +140,34 @@ fn split_comment(line : String) -> (String, String) {
 }
 
 ///|
-fn parse_declared_cost(comment : String) -> Int? {
+fn parse_declared_cost(comment : String) -> (Bool, Int64?) {
   let lower = comment.to_lower()
   if !lower.contains("cost") {
-    return None
+    return (false, None)
   }
   let equals = match lower.find("=") {
     Some(index) => index
-    None => return None
+    None => return (false, None)
   }
-  let tail = lower[equals + 1:].to_owned()
+  let tail = lower[equals + 1:].trim().to_owned()
+  if tail.length() == 0 {
+    return (true, None)
+  }
   let chars = tail.to_array()
-  let mut index = 0
-  while index < chars.length() && (chars[index] < '0' || chars[index] > '9') {
-    index += 1
+  if chars[0] < '0' || chars[0] > '9' {
+    return (true, None)
   }
-  let start = index
+  let mut index = 0
   while index < chars.length() && chars[index] >= '0' && chars[index] <= '9' {
     index += 1
   }
-  if index == start {
-    return None
+  if index < chars.length() {
+    let next = chars[index]
+    if !next.is_whitespace() && next != ',' && next != ')' && next != ';' {
+      return (true, None)
+    }
   }
-  parse_int(tail[start:index].to_owned())
+  (true, parse_int(tail[:index].to_owned()))
 }
 
 ///|
@@ -253,7 +255,7 @@ fn parse_plan_step(
 fn parse_plan(source : String) -> ParsedPlan {
   let steps : Array[PlanStep] = []
   let issues : Array[ValidationIssue] = []
-  let mut declared_cost : Int? = None
+  let mut declared_cost : Int64? = None
   let mut declared_line = 0
   let mut line_number = 0
   for raw_line in source.split("\n") {
@@ -261,12 +263,21 @@ fn parse_plan(source : String) -> ParsedPlan {
     let raw_text = raw_line.to_owned()
     let line = raw_text.trim().to_owned()
     let (body, comment) = split_comment(line)
-    match parse_declared_cost(comment) {
+    let (mentions_cost, parsed_cost) = parse_declared_cost(comment)
+    match parsed_cost {
       Some(value) => {
         declared_cost = Some(value)
         declared_line = line_number
       }
-      None => ()
+      None =>
+        if mentions_cost {
+          issues.push(
+            syntax_issue(
+              line_number,
+              "line \{line_number}: malformed cost comment; expected '; cost = <non-negative integer>'",
+            ),
+          )
+        }
     }
     match parse_plan_step(body, line_number, issues) {
       Some(step) => steps.push(step)
@@ -361,7 +372,7 @@ pub fn validate_plan(
       valid: false,
       steps: parsed.steps.length(),
       executed: 0,
-      cost: 0,
+      cost: 0L,
       declared_cost: parsed.declared_cost,
       issues: parsed.issues,
     }
@@ -415,7 +426,7 @@ pub fn validate_plan(
     cost = capped_add(cost, action.cost)
     executed += 1
   }
-  let valid = problem.goal_holds(state)
+  let mut valid = problem.goal_holds(state)
   if !valid {
     let detail = closest_unsatisfied(problem, problem.goal, state)
     let message = "goal is not satisfied after \{executed} step(s); unsatisfied goal literals: \{detail}"
@@ -426,6 +437,7 @@ pub fn validate_plan(
         if declared != cost {
           let message = "declared plan cost \{declared} does not match computed cost \{cost}"
           issues.push(issue(CostMismatch, parsed.declared_line, 0, message))
+          valid = false
         }
       None => ()
     }
