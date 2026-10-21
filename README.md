@@ -12,7 +12,7 @@ MoonBit 实现，核心库不依赖任何外部求解器。
 [English documentation](README.en.md)
 
 ```text
-$ moon run cmd/moonpddl --target native -- solve \
+$ moon run --target native cmd/moonpddl -- solve \
     examples/blocksworld/domain.pddl examples/blocksworld/problem.pddl \
     -s astar -H hmax
 ; moonpddl: solved
@@ -80,14 +80,12 @@ moon test --target native
 moon build --target native cmd/moonpddl
 ```
 
-构建产物的默认位置为
-`_build/native/debug/build/cmd/moonpddl/moonpddl.exe`（Windows）或
-`_build/native/debug/build/cmd/moonpddl/moonpddl`（Unix）。也可以直接用
-`moon run`：
+构建产物的位置随工具链版本变化，日常使用可以直接通过 `moon run` 调用，
+无需关心具体路径：
 
 ```bash
-moon run cmd/moonpddl --target native -- version
-moon run cmd/moonpddl --target native -- check \
+moon run --target native cmd/moonpddl -- version
+moon run --target native cmd/moonpddl -- check \
   examples/blocksworld/domain.pddl examples/blocksworld/problem.pddl
 ```
 
@@ -118,7 +116,7 @@ moonpddl version
 ### 求解
 
 ```bash
-moon run cmd/moonpddl --target native -- solve \
+moon run --target native cmd/moonpddl -- solve \
   examples/logistics/domain.pddl examples/logistics/problem.pddl \
   -s wastar --weight 3 -H hmax
 ```
@@ -147,7 +145,7 @@ moon run cmd/moonpddl --target native -- solve \
 ### 验证
 
 ```bash
-moon run cmd/moonpddl --target native -- validate \
+moon run --target native cmd/moonpddl -- validate \
   examples/logistics/domain.pddl examples/logistics/problem.pddl \
   examples/logistics/plan.pddl
 # plan valid: 9 step(s), cost 9
@@ -167,7 +165,7 @@ step 1 ((pick ball1 rooma left)) uses unknown action 'pick'
 ### 查看模型与接地结果
 
 ```bash
-moon run cmd/moonpddl --target native -- check \
+moon run --target native cmd/moonpddl -- check \
   examples/blocksworld/domain.pddl examples/blocksworld/problem.pddl
 ```
 
@@ -290,7 +288,7 @@ GroundProblem（原子表 + 位集 State + 接地动作）
 每个目录都包含 `domain.pddl`、`problem.pddl` 与手工核对的 `plan.pddl`：
 
 ```bash
-moon run cmd/moonpddl --target native -- validate \
+moon run --target native cmd/moonpddl -- validate \
   examples/matchcellar/domain.pddl examples/matchcellar/problem.pddl \
   examples/matchcellar/plan.pddl
 # plan valid: 4 step(s), cost 4

@@ -41,13 +41,13 @@ jobs:
           for dir in examples/*/; do
             name=$(basename "$dir")
             echo "::group::$name"
-            ./_build/native/debug/build/cmd/moonpddl/moonpddl validate \
+            moon run --target native cmd/moonpddl -- validate \
               "$dir/domain.pddl" "$dir/problem.pddl" "$dir/plan.pddl"
             echo "::endgroup::"
           done
 
       - name: Solve blocksworld optimally
         run: |
-          ./_build/native/debug/build/cmd/moonpddl/moonpddl solve \
+          moon run --target native cmd/moonpddl -- solve \
             examples/blocksworld/domain.pddl examples/blocksworld/problem.pddl \
             -s astar -H hmax -q
