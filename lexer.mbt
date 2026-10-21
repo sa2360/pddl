@@ -23,9 +23,9 @@ priv struct Token {
 /// `String::to_array` gives code-point indexing, which is all we need.
 priv struct Lexer {
   chars : Array[Char]
-  mut i : Int
-  mut line : Int
-  mut col : Int
+  mut i : Int32
+  mut line : Int32
+  mut col : Int32
 }
 
 ///|

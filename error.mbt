@@ -5,8 +5,8 @@
 ///|
 /// A 1-based source position inside a PDDL document.
 pub(all) struct Position {
-  line : Int
-  column : Int
+  line : Int32
+  column : Int32
 } derive(Eq, Debug)
 
 ///|

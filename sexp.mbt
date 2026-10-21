@@ -4,7 +4,7 @@
 
 ///|
 /// Maximum S-expression nesting accepted by the generic reader.
-const MAX_SEXP_DEPTH : Int = 1024
+const MAX_SEXP_DEPTH : Int32 = 1024
 
 ///|
 /// Generic S-expression node. The semantic parser consumes this tree, which
@@ -30,9 +30,9 @@ fn parse_sexps(tokens : Array[Token]) -> Array[Sexp] raise PddlError {
 ///|
 fn parse_sexp_at(
   tokens : Array[Token],
-  start : Int,
-  depth : Int,
-) -> (Sexp, Int) raise PddlError {
+  start : Int32,
+  depth : Int32,
+) -> (Sexp, Int32) raise PddlError {
   let tok = tokens[start]
   match tok.kind {
     LParen => {

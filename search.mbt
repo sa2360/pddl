@@ -9,7 +9,7 @@
 pub(all) enum SearchAlgorithm {
   GBFS
   AStar
-  WeightedAStar(Int)
+  WeightedAStar(Int32)
 } derive(Eq, Debug)
 
 ///|
@@ -45,10 +45,10 @@ pub(all) enum SearchStatus {
 /// total-cost value.
 pub(all) struct SearchResult {
   status : SearchStatus
-  plan : Array[Int]
+  plan : Array[Int32]
   cost : Int64
-  expanded : Int
-  generated : Int
+  expanded : Int32
+  generated : Int32
 } derive(Debug)
 
 ///|
@@ -78,19 +78,19 @@ pub fn SearchResult::render_plan(
 ///|
 priv struct SearchNode {
   state : State
-  parent : Int
-  action : Int
+  parent : Int32
+  action : Int32
   g : Int64
   h : Int64
 }
 
 ///|
 priv struct OpenEntry {
-  node : Int
+  node : Int32
   f : Int64
   h : Int64
   g : Int64
-  order : Int
+  order : Int32
 }
 
 ///|
@@ -167,7 +167,12 @@ fn OpenList::pop(self : OpenList) -> OpenEntry? {
 }
 
 ///|
-fn search_priority(g : Int64, h : Int64, weight : Int, greedy : Bool) -> Int64 {
+fn search_priority(
+  g : Int64,
+  h : Int64,
+  weight : Int32,
+  greedy : Bool,
+) -> Int64 {
   if greedy {
     return h
   }
@@ -182,8 +187,8 @@ fn search_priority(g : Int64, h : Int64, weight : Int, greedy : Bool) -> Int64 {
 }
 
 ///|
-fn reconstruct_plan(nodes : Array[SearchNode], goal : Int) -> Array[Int] {
-  let reversed : Array[Int] = []
+fn reconstruct_plan(nodes : Array[SearchNode], goal : Int32) -> Array[Int32] {
+  let reversed : Array[Int32] = []
   let mut current = goal
   while current >= 0 {
     let node = nodes[current]
@@ -192,7 +197,7 @@ fn reconstruct_plan(nodes : Array[SearchNode], goal : Int) -> Array[Int] {
     }
     current = node.parent
   }
-  let plan : Array[Int] = []
+  let plan : Array[Int32] = []
   let mut index = reversed.length() - 1
   while index >= 0 {
     plan.push(reversed[index])
@@ -204,10 +209,10 @@ fn reconstruct_plan(nodes : Array[SearchNode], goal : Int) -> Array[Int] {
 ///|
 fn failed_result(
   status : SearchStatus,
-  expanded : Int,
-  generated : Int,
+  expanded : Int32,
+  generated : Int32,
 ) -> SearchResult {
-  let plan : Array[Int] = []
+  let plan : Array[Int32] = []
   { status, plan, cost: 0L, expanded, generated, }
 }
 
@@ -221,8 +226,8 @@ pub fn solve(
   problem : GroundProblem,
   heuristic : HeuristicKind,
   algorithm : SearchAlgorithm,
-  max_expanded? : Int = 1_000_000,
-  max_generated? : Int = 2_000_000,
+  max_expanded? : Int32 = 1_000_000,
+  max_generated? : Int32 = 2_000_000,
 ) -> SearchResult {
   let task = RelaxedTask::make(problem)
   let weight = match algorithm {
@@ -234,7 +239,7 @@ pub fn solve(
     _ => false
   }
   if problem.goal_holds(problem.initial) {
-    let plan : Array[Int] = []
+    let plan : Array[Int32] = []
     return {
       status: Solved,
       plan,

@@ -20,7 +20,7 @@ pub fn parse_domain(String) -> Domain raise PddlError
 
 pub fn parse_problem(String) -> Problem raise PddlError
 
-pub fn solve(GroundProblem, HeuristicKind, SearchAlgorithm, max_expanded? : Int, max_generated? : Int) -> SearchResult
+pub fn solve(GroundProblem, HeuristicKind, SearchAlgorithm, max_expanded? : Int32, max_generated? : Int32) -> SearchResult
 
 pub fn validate(Domain, Problem, String) -> ValidationReport raise PddlError
 
@@ -77,7 +77,7 @@ pub(all) struct FunctionDecl {
 } derive(Eq, @debug.Debug)
 
 pub(all) struct GroundAction {
-  mut id : Int
+  mut id : Int32
   name : String
   args : Array[String]
   precondition : Array[Array[Literal]]
@@ -94,8 +94,8 @@ pub fn GroundAtom::render(Self) -> String
 
 pub(all) struct GroundEffect {
   condition : Array[Array[Literal]]
-  adds : Array[Int]
-  deletes : Array[Int]
+  adds : Array[Int32]
+  deletes : Array[Int32]
 } derive(Eq, @debug.Debug)
 
 pub(all) struct GroundProblem {
@@ -110,7 +110,7 @@ pub(all) struct GroundProblem {
   uses_action_costs : Bool
   has_metric : Bool
 } derive(@debug.Debug)
-pub fn GroundProblem::atom_text(Self, Int) -> String
+pub fn GroundProblem::atom_text(Self, Int32) -> String
 pub fn GroundProblem::goal_holds(Self, State) -> Bool
 
 pub(all) enum HeuristicKind {
@@ -129,8 +129,8 @@ pub(all) enum InitElem {
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Literal {
-  Positive(Int)
-  Negative(Int)
+  Positive(Int32)
+  Negative(Int32)
 } derive(Eq, @debug.Debug)
 pub fn Literal::holds(Self, State) -> Bool
 
@@ -150,8 +150,8 @@ pub(all) enum PddlErrorData {
 } derive(Eq, @debug.Debug)
 
 pub(all) struct Position {
-  line : Int
-  column : Int
+  line : Int32
+  column : Int32
 } derive(Eq, @debug.Debug)
 
 pub(all) struct Predicate {
@@ -172,17 +172,17 @@ pub(all) struct Problem {
 pub(all) enum SearchAlgorithm {
   GBFS
   AStar
-  WeightedAStar(Int)
+  WeightedAStar(Int32)
 } derive(Eq, @debug.Debug)
 pub fn SearchAlgorithm::name(Self) -> String
 pub fn SearchAlgorithm::parse(String) -> Self?
 
 pub(all) struct SearchResult {
   status : SearchStatus
-  plan : Array[Int]
+  plan : Array[Int32]
   cost : Int64
-  expanded : Int
-  generated : Int
+  expanded : Int32
+  generated : Int32
 } derive(@debug.Debug)
 pub fn SearchResult::is_solved(Self) -> Bool
 pub fn SearchResult::render_plan(Self, GroundProblem) -> String
@@ -194,15 +194,15 @@ pub(all) enum SearchStatus {
 } derive(Eq, @debug.Debug)
 
 pub(all) struct State {
-  words : Array[Int]
+  words : Array[Int32]
 } derive(@debug.Debug)
-pub fn State::add(Self, Int) -> Unit
-pub fn State::contains(Self, Int) -> Bool
+pub fn State::add(Self, Int32) -> Unit
+pub fn State::contains(Self, Int32) -> Bool
 pub fn State::copy(Self) -> Self
-pub fn State::empty(Int) -> Self
+pub fn State::empty(Int32) -> Self
 pub fn State::key(Self) -> String
-pub fn State::num_true(Self) -> Int
-pub fn State::remove(Self, Int) -> Unit
+pub fn State::num_true(Self) -> Int32
+pub fn State::remove(Self, Int32) -> Unit
 
 pub(all) enum Term {
   Var(String)
@@ -221,8 +221,8 @@ pub(all) struct TypedName {
 
 pub(all) struct ValidationIssue {
   kind : ValidationIssueKind
-  line : Int
-  step : Int
+  line : Int32
+  step : Int32
   message : String
 } derive(@debug.Debug)
 
@@ -237,8 +237,8 @@ pub fn ValidationIssueKind::name(Self) -> String
 
 pub(all) struct ValidationReport {
   valid : Bool
-  steps : Int
-  executed : Int
+  steps : Int32
+  executed : Int32
   cost : Int64
   declared_cost : Int64?
   issues : Array[ValidationIssue]

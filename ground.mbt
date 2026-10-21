@@ -3,24 +3,24 @@
 // SPDX-License-Identifier: MIT
 
 ///|
-/// Bits packed per state word. `Int` is 32-bit in MoonBit; 31 bits keep
+/// Bits packed per state word. `Int32` is 32-bit in MoonBit; 31 bits keep
 /// every word non-negative so string keys stay simple and stable.
-const BITS_PER_WORD : Int = 31
+const BITS_PER_WORD : Int32 = 31
 
 ///|
 /// Upper bound on the size of a compiled DNF. Grounding rejects formulas
 /// whose expansion would explode combinatorially.
-const MAX_DNF_ALTERNATIVES : Int = 8192
+const MAX_DNF_ALTERNATIVES : Int32 = 8192
 
 ///|
 /// Upper bound on the number of grounded actions.
-const MAX_GROUND_ACTIONS : Int = 200_000
+const MAX_GROUND_ACTIONS : Int32 = 200_000
 
 ///|
 /// A signed ground literal.
 pub(all) enum Literal {
-  Positive(Int)
-  Negative(Int)
+  Positive(Int32)
+  Negative(Int32)
 } derive(Eq, Debug)
 
 ///|
@@ -35,14 +35,14 @@ pub(all) struct GroundAtom {
 /// `condition` is a DNF; `[[]]` means unconditional.
 pub(all) struct GroundEffect {
   condition : Array[Array[Literal]]
-  adds : Array[Int]
-  deletes : Array[Int]
+  adds : Array[Int32]
+  deletes : Array[Int32]
 } derive(Eq, Debug)
 
 ///|
 /// A fully ground action.
 pub(all) struct GroundAction {
-  mut id : Int
+  mut id : Int32
   name : String
   args : Array[String]
   precondition : Array[Array[Literal]]
@@ -53,7 +53,7 @@ pub(all) struct GroundAction {
 ///|
 /// A bitset over atom ids.
 pub(all) struct State {
-  words : Array[Int]
+  words : Array[Int32]
 } derive(Debug)
 
 ///|
@@ -72,13 +72,13 @@ pub(all) struct GroundProblem {
 } derive(Debug)
 
 ///|
-pub fn State::empty(num_atoms : Int) -> State {
+pub fn State::empty(num_atoms : Int32) -> State {
   let words = Array::make((num_atoms + BITS_PER_WORD - 1) / BITS_PER_WORD, 0)
   { words, }
 }
 
 ///|
-pub fn State::contains(self : State, atom : Int) -> Bool {
+pub fn State::contains(self : State, atom : Int32) -> Bool {
   let word = atom / BITS_PER_WORD
   if word < 0 || word >= self.words.length() {
     return false
@@ -87,7 +87,7 @@ pub fn State::contains(self : State, atom : Int) -> Bool {
 }
 
 ///|
-pub fn State::add(self : State, atom : Int) -> Unit {
+pub fn State::add(self : State, atom : Int32) -> Unit {
   let word = atom / BITS_PER_WORD
   if word >= 0 && word < self.words.length() {
     self.words[word] = self.words[word] | (1 << (atom % BITS_PER_WORD))
@@ -95,7 +95,7 @@ pub fn State::add(self : State, atom : Int) -> Unit {
 }
 
 ///|
-pub fn State::remove(self : State, atom : Int) -> Unit {
+pub fn State::remove(self : State, atom : Int32) -> Unit {
   let word = atom / BITS_PER_WORD
   if word >= 0 && word < self.words.length() {
     let mask = 1 << (atom % BITS_PER_WORD)
@@ -112,7 +112,7 @@ pub fn State::copy(self : State) -> State {
 
 ///|
 /// Number of true atoms.
-pub fn State::num_true(self : State) -> Int {
+pub fn State::num_true(self : State) -> Int32 {
   let mut count = 0
   for word in self.words {
     let mut bits = word
@@ -203,7 +203,7 @@ pub fn GroundProblem::goal_holds(self : GroundProblem, state : State) -> Bool {
 
 ///|
 /// Renders an atom id for diagnostics.
-pub fn GroundProblem::atom_text(self : GroundProblem, atom : Int) -> String {
+pub fn GroundProblem::atom_text(self : GroundProblem, atom : Int32) -> String {
   if atom >= 0 && atom < self.atoms.length() {
     self.atoms[atom].render()
   } else {
@@ -221,8 +221,8 @@ pub fn action_is_applicable(action : GroundAction, state : State) -> Bool {
 /// deletions and additions are applied simultaneously with adds winning.
 pub fn apply_action(action : GroundAction, state : State) -> State {
   let next = state.copy()
-  let deletes : Array[Int] = []
-  let adds : Array[Int] = []
+  let deletes : Array[Int32] = []
+  let adds : Array[Int32] = []
   for effect in action.effects {
     if condition_holds(effect.condition, state) {
       for atom in effect.deletes {
@@ -245,12 +245,12 @@ pub fn apply_action(action : GroundAction, state : State) -> State {
 ///|
 priv struct AtomTable {
   atoms : Array[GroundAtom]
-  index : Map[String, Int]
+  index : Map[String, Int32]
 }
 
 ///|
 fn AtomTable::make() -> AtomTable {
-  let index : Map[String, Int] = Map([])
+  let index : Map[String, Int32] = Map([])
   { atoms: [], index, }
 }
 
@@ -272,7 +272,7 @@ fn AtomTable::intern(
   self : AtomTable,
   predicate : String,
   args : Array[String],
-) -> Int {
+) -> Int32 {
   let key = atom_key(predicate, args)
   match self.index.get(key) {
     Some(id) => id
@@ -478,7 +478,7 @@ fn Compiler::intern_atom(
   atom : PAtom,
   env : Map[String, String],
   context : String,
-) -> Int raise PddlError {
+) -> Int32 raise PddlError {
   let (predicate, args) = self.check_atom(atom, env, context)
   self.table.intern(predicate, args)
 }
@@ -571,7 +571,7 @@ fn Compiler::compile_quantifier(
 fn Compiler::quantifier_step(
   self : Compiler,
   vars : Array[TypedName],
-  index : Int,
+  index : Int32,
   body : Formula,
   env : Map[String, String],
   universal : Bool,
@@ -695,7 +695,7 @@ fn Compiler::collect_effect(
 fn Compiler::collect_forall_effect(
   self : Compiler,
   vars : Array[TypedName],
-  index : Int,
+  index : Int32,
   body : Effect,
   condition : Array[Array[Literal]],
   env : Map[String, String],
@@ -745,7 +745,7 @@ fn binding_of(
 fn Compiler::enumerate_params(
   self : Compiler,
   params : Array[TypedName],
-  index : Int,
+  index : Int32,
   env : Map[String, String],
   out : Array[Map[String, String]],
   context : String,
@@ -945,7 +945,7 @@ pub fn ground(
     table: AtomTable::make(),
   }
   let empty_env : Map[String, String] = Map([])
-  let init_ids : Array[Int] = []
+  let init_ids : Array[Int32] = []
   let mut initial_cost = 0L
   let mut init_cost_seen = false
   for elem in problem.init {

@@ -48,8 +48,8 @@ pub fn HeuristicKind::name(self : HeuristicKind) -> String {
 /// One action of the delete-relaxed task. Negative literals are dropped from
 /// preconditions and effect conditions; deletions are ignored entirely.
 priv struct RelaxedAction {
-  pre : Array[Int]
-  adds : Array[Int]
+  pre : Array[Int32]
+  adds : Array[Int32]
   cost : Int64
 }
 
@@ -58,14 +58,14 @@ priv struct RelaxedAction {
 /// positive atom ids of every goal disjunct; empty alternatives mean a goal
 /// that is trivially true under the relaxation.
 priv struct RelaxedTask {
-  num_atoms : Int
-  goal : Array[Array[Int]]
+  num_atoms : Int32
+  goal : Array[Array[Int32]]
   actions : Array[RelaxedAction]
 }
 
 ///|
-fn positive_atoms(alternative : Array[Literal]) -> Array[Int] {
-  let result : Array[Int] = []
+fn positive_atoms(alternative : Array[Literal]) -> Array[Int32] {
+  let result : Array[Int32] = []
   for literal in alternative {
     match literal {
       Positive(atom) => result.push(atom)
@@ -77,7 +77,7 @@ fn positive_atoms(alternative : Array[Literal]) -> Array[Int] {
 
 ///|
 fn RelaxedTask::make(problem : GroundProblem) -> RelaxedTask {
-  let goal : Array[Array[Int]] = []
+  let goal : Array[Array[Int32]] = []
   for alternative in problem.goal {
     goal.push(positive_atoms(alternative))
   }
@@ -168,9 +168,12 @@ fn hmax_costs(task : RelaxedTask, state : State) -> Array[Int64] {
 ///|
 /// Least fixed point of the additive equations. The second component records
 /// the relaxed action that last improved each atom, which `hff` reuses.
-fn hadd_costs(task : RelaxedTask, state : State) -> (Array[Int64], Array[Int]) {
+fn hadd_costs(
+  task : RelaxedTask,
+  state : State,
+) -> (Array[Int64], Array[Int32]) {
   let costs = initial_costs(task, state)
-  let achievers : Array[Int] = Array::make(task.num_atoms, -1)
+  let achievers : Array[Int32] = Array::make(task.num_atoms, -1)
   let mut changed = true
   while changed {
     changed = false
@@ -259,7 +262,7 @@ fn goal_sum(task : RelaxedTask, costs : Array[Int64]) -> Int64 {
 }
 
 ///|
-fn goal_count(problem : GroundProblem, state : State) -> Int {
+fn goal_count(problem : GroundProblem, state : State) -> Int32 {
   if problem.goal.length() == 0 {
     return -1
   }
@@ -296,7 +299,7 @@ fn hff_value(task : RelaxedTask, state : State) -> Int64 {
   if task.goal.length() == 0 {
     return -1L
   }
-  let mut goal_alternative : Array[Int] = []
+  let mut goal_alternative : Array[Int32] = []
   let mut goal_cost = HEURISTIC_INF
   let mut found = false
   for alternative in task.goal {
@@ -319,14 +322,14 @@ fn hff_value(task : RelaxedTask, state : State) -> Int64 {
   if !found {
     return -1L
   }
-  let achieved : Map[Int, Bool] = Map([])
+  let achieved : Map[Int32, Bool] = Map([])
   for atom in 0..<task.num_atoms {
     if state.contains(atom) {
       achieved.set(atom, true)
     }
   }
-  let selected : Map[Int, Bool] = Map([])
-  let pending : Array[Int] = []
+  let selected : Map[Int32, Bool] = Map([])
+  let pending : Array[Int32] = []
   for atom in goal_alternative {
     pending.push(atom)
   }

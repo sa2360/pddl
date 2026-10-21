@@ -18,8 +18,8 @@ pub(all) enum ValidationIssueKind {
 /// step.
 pub(all) struct ValidationIssue {
   kind : ValidationIssueKind
-  line : Int
-  step : Int
+  line : Int32
+  step : Int32
   message : String
 } derive(Debug)
 
@@ -28,8 +28,8 @@ pub(all) struct ValidationIssue {
 /// plan file makes a claim that the validator could not reproduce.
 pub(all) struct ValidationReport {
   valid : Bool
-  steps : Int
-  executed : Int
+  steps : Int32
+  executed : Int32
   cost : Int64
   declared_cost : Int64?
   issues : Array[ValidationIssue]
@@ -120,7 +120,7 @@ pub fn ValidationReport::to_json(self : ValidationReport) -> String {
 priv struct PlanStep {
   name : String
   args : Array[String]
-  line : Int
+  line : Int32
 }
 
 ///|
@@ -128,7 +128,7 @@ priv struct ParsedPlan {
   steps : Array[PlanStep]
   issues : Array[ValidationIssue]
   declared_cost : Int64?
-  declared_line : Int
+  declared_line : Int32
 }
 
 ///|
@@ -194,14 +194,14 @@ fn tokenize_plan_step(text : String) -> Array[String] {
 }
 
 ///|
-fn syntax_issue(line : Int, message : String) -> ValidationIssue {
+fn syntax_issue(line : Int32, message : String) -> ValidationIssue {
   { kind: PlanSyntax, line, step: 0, message, }
 }
 
 ///|
 fn parse_plan_step(
   body : String,
-  line : Int,
+  line : Int32,
   issues : Array[ValidationIssue],
 ) -> PlanStep? {
   let trimmed = body.trim().to_owned()
@@ -352,8 +352,8 @@ fn closest_unsatisfied(
 ///|
 fn issue(
   kind : ValidationIssueKind,
-  line : Int,
-  step : Int,
+  line : Int32,
+  step : Int32,
   message : String,
 ) -> ValidationIssue {
   { kind, line, step, message, }
@@ -377,7 +377,7 @@ pub fn validate_plan(
       issues: parsed.issues,
     }
   }
-  let lookup : Map[String, Int] = Map([])
+  let lookup : Map[String, Int32] = Map([])
   let names : Map[String, Bool] = Map([])
   for index in 0..<problem.actions.length() {
     let action = problem.actions[index]

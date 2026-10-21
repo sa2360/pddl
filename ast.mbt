@@ -39,7 +39,7 @@ pub(all) enum Formula {
 
 ///|
 /// Largest numeric value accepted in a cost field. Keeping costs in `Int64`
-/// avoids the 32-bit wraparound that `Int` would cause on large instances.
+/// avoids the 32-bit wraparound that `Int32` would cause on large instances.
 const MAX_COST_VALUE : Int64 = 1_000_000_000_000L
 
 ///|

@@ -33,7 +33,7 @@ fn usage() -> String {
 }
 
 ///|
-fn usage_error(message : String) -> Int {
+fn usage_error(message : String) -> Int32 {
   println("error: \{message}")
   println("")
   println(usage())
@@ -57,7 +57,7 @@ fn json_escape(text : String) -> String {
 }
 
 ///|
-fn report_error(json : Bool, message : String) -> Int {
+fn report_error(json : Bool, message : String) -> Int32 {
   if json {
     println("{\"error\":\"\{json_escape(message)}\"}")
   } else {
@@ -67,7 +67,7 @@ fn report_error(json : Bool, message : String) -> Int {
 }
 
 ///|
-fn usage_error_mode(json : Bool, message : String) -> Int {
+fn usage_error_mode(json : Bool, message : String) -> Int32 {
   if json {
     report_error(true, message)
   } else {
@@ -76,7 +76,7 @@ fn usage_error_mode(json : Bool, message : String) -> Int {
 }
 
 ///|
-fn parse_count(text : String) -> Int? {
+fn parse_count(text : String) -> Int32? {
   if text == "" {
     return None
   }
@@ -199,11 +199,11 @@ fn model_json(problem : @pddl.GroundProblem, detailed : Bool) -> String {
 }
 
 ///|
-fn cmd_solve(args : Array[String]) -> Int {
+fn cmd_solve(args : Array[String]) -> Int32 {
   let positionals : Array[String] = []
   let mut heuristic : @pddl.HeuristicKind = @pddl.HFF
   let mut search : @pddl.SearchAlgorithm = @pddl.GBFS
-  let mut weight : Int? = None
+  let mut weight : Int32? = None
   let mut max_expanded = 1_000_000
   let mut json = args.contains("--json")
   let mut out_path = ""
@@ -357,7 +357,7 @@ fn cmd_solve(args : Array[String]) -> Int {
 }
 
 ///|
-fn cmd_validate(args : Array[String]) -> Int {
+fn cmd_validate(args : Array[String]) -> Int32 {
   let positionals : Array[String] = []
   let mut json = args.contains("--json")
   let mut index = 2
@@ -418,7 +418,7 @@ fn cmd_validate(args : Array[String]) -> Int {
 }
 
 ///|
-fn model_summary(args : Array[String], detailed : Bool) -> Int {
+fn model_summary(args : Array[String], detailed : Bool) -> Int32 {
   let positionals : Array[String] = []
   let mut json = args.contains("--json")
   let mut index = 2
@@ -474,7 +474,7 @@ fn model_summary(args : Array[String], detailed : Bool) -> Int {
 }
 
 ///|
-fn run(args : Array[String]) -> Int {
+fn run(args : Array[String]) -> Int32 {
   if args.length() < 2 {
     println(usage())
     return 0

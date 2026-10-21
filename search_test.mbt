@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 ///|
-fn assert_plan_valid(problem : GroundProblem, plan : Array[Int]) -> Unit {
+fn assert_plan_valid(problem : GroundProblem, plan : Array[Int32]) -> Unit {
   let mut state = problem.initial.copy()
   for id in plan {
     let action = problem.actions[id]

@@ -134,7 +134,7 @@ fn find_ground_action(
 }
 
 ///|
-fn find_atom(problem : GroundProblem, text : String) -> Int {
+fn find_atom(problem : GroundProblem, text : String) -> Int32 {
   for i in 0..<problem.atoms.length() {
     if problem.atoms[i].render() == text {
       return i
