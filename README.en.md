@@ -34,9 +34,10 @@ International Planning Competition and a large body of planning research. A
 useful PDDL toolchain has to combine typed first-order formula compilation,
 conditional-effect and quantified grounding semantics, admissible
 delete-relaxation heuristics, forward state-space search, and a validator that
-reports precise diagnostics. As of 2026-10-21 there is no PDDL planner or plan
-validator on mooncakes.io; moonpddl brings this complete application domain to
-the MoonBit ecosystem rather than wrapping an existing MoonBit package.
+reports precise diagnostics. Before this project was published (as of
+2026-10-21), mooncakes.io had no PDDL planner or plan validator; moonpddl brings
+this complete application domain to the MoonBit ecosystem rather than wrapping
+an existing MoonBit package.
 
 ## Features
 
@@ -59,7 +60,14 @@ the MoonBit ecosystem rather than wrapping an existing MoonBit package.
 
 ## Quick start
 
-Requires the MoonBit toolchain (`moon`).
+Requires the MoonBit toolchain (`moon`). The library is published on
+[mooncakes](https://mooncakes.io/docs/sa2360/pddl):
+
+```bash
+moon add sa2360/pddl
+```
+
+To work on this repository, run:
 
 ```bash
 moon check

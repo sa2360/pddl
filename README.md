@@ -36,9 +36,9 @@ PDDL（Planning Domain Definition Language）是经典人工智能规划领域�
 - 可采纳的删除松弛启发式与前向状态空间搜索；
 - 与求解器解耦、可定位到源码行的计划验证。
 
-截至 2026-10-21，mooncakes.io 上未检索到 PDDL 规划器或计划验证器包；
-本项目不是对现有 MoonBit 库的重复封装，而是把经典规划这一完整应用领域带入
-MoonBit 生态。
+本项目发布前（截至 2026-10-21），mooncakes.io 上未检索到 PDDL 规划器或计划
+验证器包；本项目不是对现有 MoonBit 库的重复封装，而是把经典规划这一完整应用
+领域带入 MoonBit 生态。
 
 ## 功能特性
 
@@ -59,7 +59,14 @@ MoonBit 生态。
 
 ## 快速开始
 
-要求 MoonBit 工具链（`moon`）已安装。
+要求 MoonBit 工具链（`moon`）已安装。库已发布到
+[mooncakes](https://mooncakes.io/docs/sa2360/pddl)，可以直接引入：
+
+```bash
+moon add sa2360/pddl
+```
+
+若要在本仓库中开发、测试或构建 CLI：
 
 ```bash
 # 静态检查与测试（默认 wasm 目标）
