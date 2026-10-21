@@ -31,6 +31,9 @@ pub suberror PddlError {
   PddlError(PddlErrorData)
 } derive(@debug.Debug)
 pub fn PddlError::message(Self) -> String
+pub fn PddlError::output(Self, &Logger) -> Unit
+pub fn PddlError::to_repr(Self) -> @debug.Repr
+pub fn PddlError::to_string(Self) -> String
 pub impl Show for PddlError
 
 // Types and methods
@@ -40,6 +43,9 @@ pub(all) struct Action {
   precondition : Formula
   effect : Effect
 } derive(Eq, @debug.Debug)
+pub fn Action::equal(Self, Self) -> Bool
+pub fn Action::not_equal(Self, Self) -> Bool
+pub fn Action::to_repr(Self) -> @debug.Repr
 
 pub(all) struct Domain {
   name : String
@@ -50,6 +56,9 @@ pub(all) struct Domain {
   functions : Array[FunctionDecl]
   actions : Array[Action]
 } derive(Eq, @debug.Debug)
+pub fn Domain::equal(Self, Self) -> Bool
+pub fn Domain::not_equal(Self, Self) -> Bool
+pub fn Domain::to_repr(Self) -> @debug.Repr
 
 pub(all) enum Effect {
   AddEffect(PAtom)
@@ -59,6 +68,9 @@ pub(all) enum Effect {
   WhenEffect(Formula, Effect)
   IncreaseEffect(String, Int64)
 } derive(Eq, @debug.Debug)
+pub fn Effect::equal(Self, Self) -> Bool
+pub fn Effect::not_equal(Self, Self) -> Bool
+pub fn Effect::to_repr(Self) -> @debug.Repr
 
 pub(all) enum Formula {
   Atom(PAtom)
@@ -70,11 +82,17 @@ pub(all) enum Formula {
   Forall(Array[TypedName], Formula)
   Equal(Term, Term)
 } derive(Eq, @debug.Debug)
+pub fn Formula::equal(Self, Self) -> Bool
+pub fn Formula::not_equal(Self, Self) -> Bool
+pub fn Formula::to_repr(Self) -> @debug.Repr
 
 pub(all) struct FunctionDecl {
   name : String
   params : Array[TypedName]
 } derive(Eq, @debug.Debug)
+pub fn FunctionDecl::equal(Self, Self) -> Bool
+pub fn FunctionDecl::not_equal(Self, Self) -> Bool
+pub fn FunctionDecl::to_repr(Self) -> @debug.Repr
 
 pub(all) struct GroundAction {
   mut id : Int32
@@ -84,19 +102,28 @@ pub(all) struct GroundAction {
   effects : Array[GroundEffect]
   cost : Int64
 } derive(Eq, @debug.Debug)
+pub fn GroundAction::equal(Self, Self) -> Bool
+pub fn GroundAction::not_equal(Self, Self) -> Bool
 pub fn GroundAction::render(Self) -> String
+pub fn GroundAction::to_repr(Self) -> @debug.Repr
 
 pub(all) struct GroundAtom {
   predicate : String
   args : Array[String]
 } derive(Eq, @debug.Debug)
+pub fn GroundAtom::equal(Self, Self) -> Bool
+pub fn GroundAtom::not_equal(Self, Self) -> Bool
 pub fn GroundAtom::render(Self) -> String
+pub fn GroundAtom::to_repr(Self) -> @debug.Repr
 
 pub(all) struct GroundEffect {
   condition : Array[Array[Literal]]
   adds : Array[Int32]
   deletes : Array[Int32]
 } derive(Eq, @debug.Debug)
+pub fn GroundEffect::equal(Self, Self) -> Bool
+pub fn GroundEffect::not_equal(Self, Self) -> Bool
+pub fn GroundEffect::to_repr(Self) -> @debug.Repr
 
 pub(all) struct GroundProblem {
   domain_name : String
@@ -112,6 +139,7 @@ pub(all) struct GroundProblem {
 } derive(@debug.Debug)
 pub fn GroundProblem::atom_text(Self, Int32) -> String
 pub fn GroundProblem::goal_holds(Self, State) -> Bool
+pub fn GroundProblem::to_repr(Self) -> @debug.Repr
 
 pub(all) enum HeuristicKind {
   Blind
@@ -120,44 +148,68 @@ pub(all) enum HeuristicKind {
   HAdd
   HFF
 } derive(Eq, @debug.Debug)
+pub fn HeuristicKind::equal(Self, Self) -> Bool
 pub fn HeuristicKind::name(Self) -> String
+pub fn HeuristicKind::not_equal(Self, Self) -> Bool
 pub fn HeuristicKind::parse(String) -> Self?
+pub fn HeuristicKind::to_repr(Self) -> @debug.Repr
 
 pub(all) enum InitElem {
   InitFact(PAtom)
   InitCost(Int64)
 } derive(Eq, @debug.Debug)
+pub fn InitElem::equal(Self, Self) -> Bool
+pub fn InitElem::not_equal(Self, Self) -> Bool
+pub fn InitElem::to_repr(Self) -> @debug.Repr
 
 pub(all) enum Literal {
   Positive(Int32)
   Negative(Int32)
 } derive(Eq, @debug.Debug)
+pub fn Literal::equal(Self, Self) -> Bool
 pub fn Literal::holds(Self, State) -> Bool
+pub fn Literal::not_equal(Self, Self) -> Bool
+pub fn Literal::to_repr(Self) -> @debug.Repr
 
 pub(all) enum Metric {
   MinimizeTotalCost
 } derive(Eq, @debug.Debug)
+pub fn Metric::equal(Self, Self) -> Bool
+pub fn Metric::not_equal(Self, Self) -> Bool
+pub fn Metric::to_repr(Self) -> @debug.Repr
 
 pub(all) struct PAtom {
   name : String
   args : Array[Term]
 } derive(Eq, @debug.Debug)
+pub fn PAtom::equal(Self, Self) -> Bool
+pub fn PAtom::not_equal(Self, Self) -> Bool
+pub fn PAtom::to_repr(Self) -> @debug.Repr
 
 pub(all) enum PddlErrorData {
   SyntaxError(Position, String)
   Unsupported(Position, String)
   InvalidModel(String)
 } derive(Eq, @debug.Debug)
+pub fn PddlErrorData::equal(Self, Self) -> Bool
+pub fn PddlErrorData::not_equal(Self, Self) -> Bool
+pub fn PddlErrorData::to_repr(Self) -> @debug.Repr
 
 pub(all) struct Position {
   line : Int32
   column : Int32
 } derive(Eq, @debug.Debug)
+pub fn Position::equal(Self, Self) -> Bool
+pub fn Position::not_equal(Self, Self) -> Bool
+pub fn Position::to_repr(Self) -> @debug.Repr
 
 pub(all) struct Predicate {
   name : String
   params : Array[TypedName]
 } derive(Eq, @debug.Debug)
+pub fn Predicate::equal(Self, Self) -> Bool
+pub fn Predicate::not_equal(Self, Self) -> Bool
+pub fn Predicate::to_repr(Self) -> @debug.Repr
 
 pub(all) struct Problem {
   name : String
@@ -168,14 +220,20 @@ pub(all) struct Problem {
   goal : Formula
   metric : Metric?
 } derive(Eq, @debug.Debug)
+pub fn Problem::equal(Self, Self) -> Bool
+pub fn Problem::not_equal(Self, Self) -> Bool
+pub fn Problem::to_repr(Self) -> @debug.Repr
 
 pub(all) enum SearchAlgorithm {
   GBFS
   AStar
   WeightedAStar(Int32)
 } derive(Eq, @debug.Debug)
+pub fn SearchAlgorithm::equal(Self, Self) -> Bool
 pub fn SearchAlgorithm::name(Self) -> String
+pub fn SearchAlgorithm::not_equal(Self, Self) -> Bool
 pub fn SearchAlgorithm::parse(String) -> Self?
+pub fn SearchAlgorithm::to_repr(Self) -> @debug.Repr
 
 pub(all) struct SearchResult {
   status : SearchStatus
@@ -186,12 +244,16 @@ pub(all) struct SearchResult {
 } derive(@debug.Debug)
 pub fn SearchResult::is_solved(Self) -> Bool
 pub fn SearchResult::render_plan(Self, GroundProblem) -> String
+pub fn SearchResult::to_repr(Self) -> @debug.Repr
 
 pub(all) enum SearchStatus {
   Solved
   Exhausted
   NodeLimitReached
 } derive(Eq, @debug.Debug)
+pub fn SearchStatus::equal(Self, Self) -> Bool
+pub fn SearchStatus::not_equal(Self, Self) -> Bool
+pub fn SearchStatus::to_repr(Self) -> @debug.Repr
 
 pub(all) struct State {
   words : Array[Int32]
@@ -203,21 +265,31 @@ pub fn State::empty(Int32) -> Self
 pub fn State::key(Self) -> String
 pub fn State::num_true(Self) -> Int32
 pub fn State::remove(Self, Int32) -> Unit
+pub fn State::to_repr(Self) -> @debug.Repr
 
 pub(all) enum Term {
   Var(String)
   Const(String)
 } derive(Eq, @debug.Debug)
+pub fn Term::equal(Self, Self) -> Bool
+pub fn Term::not_equal(Self, Self) -> Bool
+pub fn Term::to_repr(Self) -> @debug.Repr
 
 pub(all) struct TypeDecl {
   name : String
   parent : String
 } derive(Eq, @debug.Debug)
+pub fn TypeDecl::equal(Self, Self) -> Bool
+pub fn TypeDecl::not_equal(Self, Self) -> Bool
+pub fn TypeDecl::to_repr(Self) -> @debug.Repr
 
 pub(all) struct TypedName {
   name : String
   type_name : String
 } derive(Eq, @debug.Debug)
+pub fn TypedName::equal(Self, Self) -> Bool
+pub fn TypedName::not_equal(Self, Self) -> Bool
+pub fn TypedName::to_repr(Self) -> @debug.Repr
 
 pub(all) struct ValidationIssue {
   kind : ValidationIssueKind
@@ -225,6 +297,7 @@ pub(all) struct ValidationIssue {
   step : Int32
   message : String
 } derive(@debug.Debug)
+pub fn ValidationIssue::to_repr(Self) -> @debug.Repr
 
 pub(all) enum ValidationIssueKind {
   PlanSyntax
@@ -233,7 +306,10 @@ pub(all) enum ValidationIssueKind {
   GoalNotReached
   CostMismatch
 } derive(Eq, @debug.Debug)
+pub fn ValidationIssueKind::equal(Self, Self) -> Bool
 pub fn ValidationIssueKind::name(Self) -> String
+pub fn ValidationIssueKind::not_equal(Self, Self) -> Bool
+pub fn ValidationIssueKind::to_repr(Self) -> @debug.Repr
 
 pub(all) struct ValidationReport {
   valid : Bool
@@ -245,6 +321,7 @@ pub(all) struct ValidationReport {
 } derive(@debug.Debug)
 pub fn ValidationReport::message(Self) -> String
 pub fn ValidationReport::to_json(Self) -> String
+pub fn ValidationReport::to_repr(Self) -> @debug.Repr
 
 // Type aliases
 
