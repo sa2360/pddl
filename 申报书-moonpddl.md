@@ -79,5 +79,5 @@ examples/matchcellar/  plan valid: 4 step(s), cost 4
 
 - 仓库：https://github.com/sa2360/pddl
 - Mooncakes 模块：https://mooncakes.io/docs/sa2360/pddl
-- 使用文档：[README.md](../README.md)
-- 示例目录：[examples/](../examples)
+- 使用文档：[README.md](README.md)
+- 示例目录：[examples/](examples/)
