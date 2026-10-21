@@ -226,8 +226,8 @@ pub fn solve(
   problem : GroundProblem,
   heuristic : HeuristicKind,
   algorithm : SearchAlgorithm,
-  max_expanded? : Int32 = 1_000_000,
-  max_generated? : Int32 = 2_000_000,
+  max_expanded~ : Int32 = 1_000_000,
+  max_generated~ : Int32 = 2_000_000,
 ) -> SearchResult {
   let task = RelaxedTask::make(problem)
   let weight = match algorithm {
