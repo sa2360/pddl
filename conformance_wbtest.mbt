@@ -428,3 +428,37 @@ test "moderately deep formulas still parse and ground" {
   @test.assert_eq(problem.actions[0].precondition.length(), 1)
   @test.assert_eq(problem.actions[0].precondition[0].length(), 1)
 }
+
+///|
+test "numeric effects combine with when and forall" {
+  let problem = try! ground(
+    parse_domain(
+      (
+        #|(define (domain d)
+        #|  (:requirements :universal-preconditions :conditional-effects :fluents)
+        #|  (:types t)
+        #|  (:predicates (marked ?x - t) (p))
+        #|  (:functions (pool) - number)
+        #|  (:action charge-all
+        #|    :parameters ()
+        #|    :precondition ()
+        #|    :effect (and (p)
+        #|                 (forall (?x - t)
+        #|                   (when (not (marked ?x)) (increase (pool) 3))))))
+      ),
+    ),
+    parse_problem(
+      (
+        #|(define (problem p)
+        #|  (:domain d)
+        #|  (:objects a b c - t)
+        #|  (:init (marked c) (= (pool) 0))
+        #|  (:goal (p)))
+      ),
+    ),
+  )
+  let pool = find_fluent(problem, "(pool)")
+  // Only the unmarked objects a and b trigger the conditional increase.
+  let state = apply_action(problem.actions[0], problem.initial)
+  @test.assert_eq(state.fluent(pool), 6.0)
+}
