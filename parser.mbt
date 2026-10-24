@@ -728,6 +728,19 @@ fn is_numeric_literal(node : Sexp) -> Bool {
 }
 
 ///|
+/// Upper bound on formula, effect and numeric-expression nesting depth.
+/// The S-expression reader already bounds nesting at 1024, but semantic
+/// recursion frames are larger, so a legal S-expression deep enough could
+/// overflow the native stack with no diagnostic. 256 is far beyond any
+/// real-world model and safely below the observed crash threshold.
+const MAX_FORMULA_DEPTH : Int32 = 256
+
+///|
+fn formula_depth_error(pos : Position) -> PddlError {
+  syntax_error(pos, "formula nesting exceeds the limit of \{MAX_FORMULA_DEPTH}")
+}
+
+///|
 /// True when the operand must be read as a numeric expression: any list
 /// (function application or arithmetic) or a numeric literal.
 fn is_numeric_operand(node : Sexp) -> Bool {
@@ -740,6 +753,14 @@ fn is_numeric_operand(node : Sexp) -> Bool {
 ///|
 /// Parses a PDDL 2.1 `<f-exp>` numeric expression.
 fn parse_num_expr(node : Sexp) -> NumExpr raise PddlError {
+  parse_num_expr_at(node, 0)
+}
+
+///|
+fn parse_num_expr_at(node : Sexp, depth : Int32) -> NumExpr raise PddlError {
+  if depth >= MAX_FORMULA_DEPTH {
+    raise formula_depth_error(sexp_pos(node))
+  }
   match node {
     SAtom(text, _) =>
       match parse_number(text) {
@@ -766,19 +787,19 @@ fn parse_num_expr(node : Sexp) -> NumExpr raise PddlError {
             "'\{head}' needs at least two operands in a numeric expression",
           )
         }
-        let mut acc = parse_num_expr(items[1])
+        let mut acc = parse_num_expr_at(items[1], depth + 1)
         for i in 2..<items.length() {
-          let rhs = parse_num_expr(items[i])
+          let rhs = parse_num_expr_at(items[i], depth + 1)
           acc = if head == "+" { NumAdd(acc, rhs) } else { NumMul(acc, rhs) }
         }
         acc
       } else if head == "-" {
         if items.length() == 2 {
-          NumNeg(parse_num_expr(items[1]))
+          NumNeg(parse_num_expr_at(items[1], depth + 1))
         } else if items.length() >= 3 {
-          let mut acc = parse_num_expr(items[1])
+          let mut acc = parse_num_expr_at(items[1], depth + 1)
           for i in 2..<items.length() {
-            acc = NumSub(acc, parse_num_expr(items[i]))
+            acc = NumSub(acc, parse_num_expr_at(items[i], depth + 1))
           }
           acc
         } else {
@@ -790,7 +811,10 @@ fn parse_num_expr(node : Sexp) -> NumExpr raise PddlError {
         if items.length() != 3 {
           raise syntax_error(head_pos, "'/' expects exactly two operands")
         }
-        NumDiv(parse_num_expr(items[1]), parse_num_expr(items[2]))
+        NumDiv(
+          parse_num_expr_at(items[1], depth + 1),
+          parse_num_expr_at(items[2], depth + 1),
+        )
       } else if head == "=" ||
         head == "<" ||
         head == "<=" ||
@@ -820,6 +844,14 @@ fn compare_op_of(head : String) -> CompareOp {
 
 ///|
 fn parse_formula(node : Sexp) -> Formula raise PddlError {
+  parse_formula_at(node, 0)
+}
+
+///|
+fn parse_formula_at(node : Sexp, depth : Int32) -> Formula raise PddlError {
+  if depth >= MAX_FORMULA_DEPTH {
+    raise formula_depth_error(sexp_pos(node))
+  }
   match node {
     SAtom(text, pos) =>
       raise syntax_error(pos, "expected a formula list, found '\{text}'")
@@ -836,7 +868,7 @@ fn parse_formula(node : Sexp) -> Formula raise PddlError {
       if head == "and" || head == "or" {
         let children : Array[Formula] = []
         for i in 1..<items.length() {
-          children.push(parse_formula(items[i]))
+          children.push(parse_formula_at(items[i], depth + 1))
         }
         if head == "and" {
           And(children)
@@ -847,12 +879,15 @@ fn parse_formula(node : Sexp) -> Formula raise PddlError {
         if items.length() != 2 {
           raise syntax_error(head_pos, "'not' expects exactly one formula")
         }
-        Not(parse_formula(items[1]))
+        Not(parse_formula_at(items[1], depth + 1))
       } else if head == "imply" {
         if items.length() != 3 {
           raise syntax_error(head_pos, "'imply' expects exactly two formulas")
         }
-        Imply(parse_formula(items[1]), parse_formula(items[2]))
+        Imply(
+          parse_formula_at(items[1], depth + 1),
+          parse_formula_at(items[2], depth + 1),
+        )
       } else if head == "exists" || head == "forall" {
         if items.length() != 3 {
           raise syntax_error(
@@ -872,7 +907,7 @@ fn parse_formula(node : Sexp) -> Formula raise PddlError {
           )
         }
         check_duplicates(vars, "variable", var_pos)
-        let body = parse_formula(items[2])
+        let body = parse_formula_at(items[2], depth + 1)
         if head == "exists" {
           Exists(vars, body)
         } else {
@@ -951,6 +986,14 @@ fn parse_numeric_effect(
 
 ///|
 fn parse_effect(node : Sexp) -> Effect raise PddlError {
+  parse_effect_at(node, 0)
+}
+
+///|
+fn parse_effect_at(node : Sexp, depth : Int32) -> Effect raise PddlError {
+  if depth >= MAX_FORMULA_DEPTH {
+    raise formula_depth_error(sexp_pos(node))
+  }
   match node {
     SAtom(text, pos) =>
       raise syntax_error(pos, "expected an effect list, found '\{text}'")
@@ -967,7 +1010,7 @@ fn parse_effect(node : Sexp) -> Effect raise PddlError {
       if head == "and" {
         let children : Array[Effect] = []
         for i in 1..<items.length() {
-          children.push(parse_effect(items[i]))
+          children.push(parse_effect_at(items[i], depth + 1))
         }
         AndEffect(children)
       } else if head == "not" {
@@ -994,14 +1037,17 @@ fn parse_effect(node : Sexp) -> Effect raise PddlError {
           raise syntax_error(var_pos, "'forall' requires at least one variable")
         }
         check_duplicates(vars, "variable", var_pos)
-        ForallEffect(vars, parse_effect(items[2]))
+        ForallEffect(vars, parse_effect_at(items[2], depth + 1))
       } else if head == "when" {
         if items.length() != 3 {
           raise syntax_error(
             head_pos, "'when' expects a condition and an effect",
           )
         }
-        WhenEffect(parse_formula(items[1]), parse_effect(items[2]))
+        WhenEffect(
+          parse_formula(items[1]),
+          parse_effect_at(items[2], depth + 1),
+        )
       } else if head == "increase" ||
         head == "decrease" ||
         head == "assign" ||

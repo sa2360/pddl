@@ -352,3 +352,79 @@ test "numeric equality and inequality" {
     false,
   )
 }
+
+///|
+test "deep formula nesting raises a clean error instead of crashing" {
+  let mut body = "(p)"
+  let mut i = 0
+  while i < 500 {
+    body = "(and \{body})"
+    i += 1
+  }
+  let domain = "(define (domain deep) (:predicates (p)) (:action a :parameters () :precondition \{body} :effect (and)))"
+  let err = try {
+    ignore(parse_domain(domain))
+    abort("expected a parse error")
+  } catch {
+    err => err
+  }
+  @test.assert_eq(err.message().contains("nesting exceeds"), true)
+}
+
+///|
+test "deep numeric nesting raises a clean error instead of crashing" {
+  let mut body = "(f)"
+  let mut i = 0
+  while i < 500 {
+    body = "(+ \{body} 1)"
+    i += 1
+  }
+  let domain = "(define (domain deep) (:functions (f) - number) (:action a :parameters () :precondition (>= \{body} 0) :effect (and)))"
+  let err = try {
+    ignore(parse_domain(domain))
+    abort("expected a parse error")
+  } catch {
+    err => err
+  }
+  @test.assert_eq(err.message().contains("nesting exceeds"), true)
+}
+
+///|
+test "deep effect nesting raises a clean error instead of crashing" {
+  let mut body = "(done)"
+  let mut i = 0
+  while i < 500 {
+    body = "(and \{body})"
+    i += 1
+  }
+  let domain = "(define (domain deep) (:predicates (done)) (:action a :parameters () :precondition () :effect \{body}))"
+  let err = try {
+    ignore(parse_domain(domain))
+    abort("expected a parse error")
+  } catch {
+    err => err
+  }
+  @test.assert_eq(err.message().contains("nesting exceeds"), true)
+}
+
+///|
+test "moderately deep formulas still parse and ground" {
+  let mut body = "(p)"
+  let mut i = 0
+  while i < 100 {
+    body = "(and \{body})"
+    i += 1
+  }
+  let domain = try! parse_domain(
+    "(define (domain deep) (:predicates (p)) (:action a :parameters () :precondition \{body} :effect (and)))",
+  )
+  let problem = try! ground(
+    domain,
+    parse_problem(
+      "(define (problem deep1) (:domain deep) (:init (p)) (:goal (p)))",
+    ),
+  )
+  // 100 nested ands collapse to a single-literal DNF.
+  @test.assert_eq(problem.actions[0].precondition.length(), 1)
+  @test.assert_eq(problem.actions[0].precondition[0].length(), 1)
+}

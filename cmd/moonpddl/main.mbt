@@ -461,6 +461,14 @@ fn model_summary(args : Array[String], detailed : Bool) -> Int32 {
       println("  goal disjuncts: \{grounded.goal.length()}")
       println("  initial cost: \{@pddl.format_number(grounded.initial_cost)}")
       println("  cost mode: \{cost_mode(grounded)}")
+      if grounded.has_metric {
+        let direction = if grounded.metric_minimize {
+          "minimize"
+        } else {
+          "maximize"
+        }
+        println("  metric: \{direction}")
+      }
       if detailed {
         println("")
         println("ground actions:")

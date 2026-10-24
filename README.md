@@ -88,7 +88,7 @@ PDDL+ 时态模型）不在范围内，遇到时明确报错而不是静默忽�
   `; cost = N` 标注不一致（判为无效）。
 - **CLI 与 JSON**：`solve` / `validate` / `check` / `ground` 四个子命令，
   稳定退出码与机器可读输出，适合脚本与 CI 集成。
-- **可复现工程**：五个可运行示例、86 个单元/集成测试、跨 wasm 与 native
+- **可复现工程**：五个可运行示例、90 个单元/集成测试、跨 wasm 与 native
   目标验证、可选的性能基准。
 
 ## 快速开始
@@ -338,7 +338,7 @@ moon run --target native cmd/moonpddl -- validate \
 ## 测试与基准
 
 ```bash
-moon test                     # 86 个测试，wasm
+moon test                     # 90 个测试，wasm
 moon test --target native     # 同一套测试，native
 moon test --include-skipped -f "benchmarks:*"   # 可选性能基准
 ```
@@ -364,7 +364,8 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 Ubuntu 上执行
 ## 限制与路线图
 
 - 采用**完全接地**，动作数随对象数量组合增长；当前上限为 200,000 个接地动作、
-  8,192 个 DNF 分支。接地后有一遍删除松弛可达性剪枝，但没有基于相关性分析的
+  8,192 个 DNF 分支，公式/效果/数值表达式的嵌套深度上限为 256（超出报错而
+  不是崩溃）。接地后有一遍删除松弛可达性剪枝，但没有基于相关性分析的
   接地期剪枝。
 - 搜索为前向最佳优先；尚无语义剪枝、landmark、SAS+ 或符号搜索。
 - PDDL 2.1 **Level 2 及以上**（durative actions、连续效果、PDDL+ 时态模型）与
@@ -382,7 +383,7 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 Ubuntu 上执行
 ## 开发说明与 AI 使用披露
 
 本项目在开发过程中使用了 AI 编程助手（Qoder、ZCode）协助代码实现、测试用例
-设计、文档撰写与命令行调试。所有提交代码均经过本地 `moon check`、86 个测试、
+设计、文档撰写与命令行调试。所有提交代码均经过本地 `moon check`、90 个测试、
 wasm/native 双后端运行以及五个示例计划验证；作者对最终代码、设计与正确性负责。
 
 欢迎提交 issue 与 PR。

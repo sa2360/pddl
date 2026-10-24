@@ -97,7 +97,7 @@ other test files).
   annotation mismatches (which invalidate the plan).
 - **CLI and JSON**: `solve`, `validate`, `check`, and `ground` subcommands with
   stable exit codes and one-line JSON output.
-- **Reproducible project**: five runnable examples, 86 unit/integration tests,
+- **Reproducible project**: five runnable examples, 90 unit/integration tests,
   wasm and native targets, and optional benchmarks.
 
 ## Quick start
@@ -292,7 +292,7 @@ moon run --target native cmd/moonpddl -- validate \
 ## Testing and benchmarks
 
 ```bash
-moon test                                      # 86 tests on wasm
+moon test                                      # 90 tests on wasm
 moon test --target native                      # same suite on native
 moon test --include-skipped -f "benchmarks:*"  # optional benchmarks
 ```
@@ -317,9 +317,11 @@ blocksworld and delivery-numeric.
 ## Limitations
 
 - Grounding is full; action counts grow combinatorially with objects. The
-  current caps are 200,000 ground actions and 8,192 DNF branches. Grounding is
-  followed by a delete-relaxation reachability prune, but there is no
-  relevance-analysis-based pruning at grounding time.
+  current caps are 200,000 ground actions, 8,192 DNF branches, and a nesting
+  depth of 256 for formulas, effects, and numeric expressions (deeper input
+  is rejected with an error, not a crash). Grounding is followed by a
+  delete-relaxation reachability prune, but there is no relevance-analysis
+  based pruning at grounding time.
 - Search is forward best-first; there is no semantic pruning, landmark
   heuristic, SAS+ compilation, or symbolic search yet.
 - PDDL 2.1 **Level 2 and above** (durative actions, continuous effects, the
@@ -341,7 +343,7 @@ post-processing, a browser/wasm demo, and PDDL 2.2 derived predicates.
 
 AI coding assistants (Qoder, ZCode) helped implement code, design tests, write
 documentation, and debug the CLI. All committed code was checked locally with
-`moon check`, the 86-test suite, wasm/native runs, and validation of all five
+`moon check`, the 90-test suite, wasm/native runs, and validation of all five
 example plans. The author is responsible for the final design and correctness.
 
 ## License

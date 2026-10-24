@@ -53,7 +53,7 @@
 
 ## 目前完成情况
 
-本地 `moon check --deny-warn` 没有警告，`moon test` 在 wasm 和 native 两个后端都是 86 个测试全部通过，其中包含一个专门的 PDDL 2.1 Level 1 符合性测试组。五个示例计划都能通过验证：
+本地 `moon check --deny-warn` 没有警告，`moon test` 在 wasm 和 native 两个后端都是 90 个测试全部通过，其中包含一个专门的 PDDL 2.1 Level 1 符合性测试组。五个示例计划都能通过验证：
 
 ```text
 examples/blocksworld/       plan valid: 4 step(s), cost 4
