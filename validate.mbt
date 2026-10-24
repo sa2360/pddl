@@ -30,8 +30,8 @@ pub(all) struct ValidationReport {
   valid : Bool
   steps : Int32
   executed : Int32
-  cost : Int64
-  declared_cost : Int64?
+  cost : Double
+  declared_cost : Double?
   issues : Array[ValidationIssue]
 } derive(Debug)
 
@@ -39,9 +39,9 @@ pub(all) struct ValidationReport {
 pub fn ValidationReport::message(self : ValidationReport) -> String {
   if self.valid {
     if self.issues.length() > 0 {
-      "plan valid: \{self.executed} step(s), cost \{self.cost} (\{self.issues.length()} warning(s))"
+      "plan valid: \{self.executed} step(s), cost \{format_number(self.cost)} (\{self.issues.length()} warning(s))"
     } else {
-      "plan valid: \{self.executed} step(s), cost \{self.cost}"
+      "plan valid: \{self.executed} step(s), cost \{format_number(self.cost)}"
     }
   } else {
     "plan invalid"
@@ -76,6 +76,11 @@ fn json_escape(text : String) -> String {
 }
 
 ///|
+fn json_number(value : Double) -> String {
+  format_number(value)
+}
+
+///|
 /// Serializes the report as a single JSON object.
 pub fn ValidationReport::to_json(self : ValidationReport) -> String {
   let sb = StringBuilder::StringBuilder()
@@ -90,10 +95,10 @@ pub fn ValidationReport::to_json(self : ValidationReport) -> String {
   sb.write_string(",\"executed\":")
   sb.write_string(self.executed.to_string())
   sb.write_string(",\"cost\":")
-  sb.write_string(self.cost.to_string())
+  sb.write_string(json_number(self.cost))
   sb.write_string(",\"declared_cost\":")
   match self.declared_cost {
-    Some(value) => sb.write_string(value.to_string())
+    Some(value) => sb.write_string(json_number(value))
     None => sb.write_string("null")
   }
   sb.write_string(",\"issues\":[")
@@ -127,7 +132,7 @@ priv struct PlanStep {
 priv struct ParsedPlan {
   steps : Array[PlanStep]
   issues : Array[ValidationIssue]
-  declared_cost : Int64?
+  declared_cost : Double?
   declared_line : Int32
 }
 
@@ -140,7 +145,9 @@ fn split_comment(line : String) -> (String, String) {
 }
 
 ///|
-fn parse_declared_cost(comment : String) -> (Bool, Int64?) {
+/// Parses a `; cost = N` comment. Integers and decimals are accepted;
+/// anything else that mentions cost is reported as malformed.
+fn parse_declared_cost(comment : String) -> (Bool, Double?) {
   let lower = comment.to_lower()
   if !lower.contains("cost") {
     return (false, None)
@@ -157,9 +164,15 @@ fn parse_declared_cost(comment : String) -> (Bool, Int64?) {
   if chars[0] < '0' || chars[0] > '9' {
     return (true, None)
   }
-  let mut index = 0
+  let mut index = 1
   while index < chars.length() && chars[index] >= '0' && chars[index] <= '9' {
     index += 1
+  }
+  if index < chars.length() && chars[index] == '.' {
+    index += 1
+    while index < chars.length() && chars[index] >= '0' && chars[index] <= '9' {
+      index += 1
+    }
   }
   if index < chars.length() {
     let next = chars[index]
@@ -167,7 +180,65 @@ fn parse_declared_cost(comment : String) -> (Bool, Int64?) {
       return (true, None)
     }
   }
-  (true, parse_int(tail[:index].to_owned()))
+  let number = tail[:index].to_owned()
+  if number == "" {
+    return (true, None)
+  }
+  (true, parse_plan_number(number))
+}
+
+///|
+/// Parses a plan cost comment number: optional sign, digits, optional
+/// fraction. Sums are accumulated in `Double`, so 15 significant digits
+/// stay exact.
+fn parse_plan_number(text : String) -> Double? {
+  let chars = text.to_array()
+  if chars.length() == 0 {
+    return None
+  }
+  let mut index = 0
+  let mut negative = false
+  if chars[0] == '-' {
+    negative = true
+    index = 1
+  }
+  let mut int_digits = 0
+  let mut int_part = 0.0
+  while index < chars.length() && chars[index] >= '0' && chars[index] <= '9' {
+    int_part = int_part * 10.0 + (chars[index].to_int() - 48).to_double()
+    int_digits += 1
+    index += 1
+  }
+  if int_digits == 0 {
+    return None
+  }
+  if index < chars.length() && chars[index] == '.' {
+    index += 1
+    let mut frac_digits = 0
+    let mut frac_part = 0.0
+    while index < chars.length() && chars[index] >= '0' && chars[index] <= '9' {
+      frac_part = frac_part * 10.0 + (chars[index].to_int() - 48).to_double()
+      frac_digits += 1
+      index += 1
+    }
+    if frac_digits == 0 {
+      return None
+    }
+    let mut scale = 1.0
+    let mut k = 0
+    while k < frac_digits {
+      scale = scale * 10.0
+      k += 1
+    }
+    int_part = int_part + frac_part / scale
+  }
+  if index != chars.length() {
+    return None
+  }
+  if negative {
+    int_part = -int_part
+  }
+  Some(int_part)
 }
 
 ///|
@@ -255,7 +326,7 @@ fn parse_plan_step(
 fn parse_plan(source : String) -> ParsedPlan {
   let steps : Array[PlanStep] = []
   let issues : Array[ValidationIssue] = []
-  let mut declared_cost : Int64? = None
+  let mut declared_cost : Double? = None
   let mut declared_line = 0
   let mut line_number = 0
   for raw_line in source.split("\n") {
@@ -274,7 +345,7 @@ fn parse_plan(source : String) -> ParsedPlan {
           issues.push(
             syntax_issue(
               line_number,
-              "line \{line_number}: malformed cost comment; expected '; cost = <non-negative integer>'",
+              "line \{line_number}: malformed cost comment; expected '; cost = <number>'",
             ),
           )
         }
@@ -301,18 +372,15 @@ fn render_plan_step(step : PlanStep) -> String {
 }
 
 ///|
-fn literal_text(problem : GroundProblem, literal : Literal) -> String {
-  match literal {
-    Positive(atom) => problem.atom_text(atom)
-    Negative(atom) => "(not \{problem.atom_text(atom)})"
-  }
+fn literal_text(problem : GroundProblem, literal : CondLit) -> String {
+  cond_lit_text(problem, literal)
 }
 
 ///|
 /// Describes the unsatisfied literals of the closest DNF alternative.
 fn closest_unsatisfied(
   problem : GroundProblem,
-  condition : Array[Array[Literal]],
+  condition : Array[Array[CondLit]],
   state : State,
 ) -> String {
   if condition.length() == 0 {
@@ -372,7 +440,7 @@ pub fn validate_plan(
       valid: false,
       steps: parsed.steps.length(),
       executed: 0,
-      cost: 0L,
+      cost: 0.0,
       declared_cost: parsed.declared_cost,
       issues: parsed.issues,
     }
@@ -434,8 +502,8 @@ pub fn validate_plan(
   } else {
     match parsed.declared_cost {
       Some(declared) =>
-        if declared != cost {
-          let message = "declared plan cost \{declared} does not match computed cost \{cost}"
+        if num_compare(CmpNE, declared, cost) {
+          let message = "declared plan cost \{format_number(declared)} does not match computed cost \{format_number(cost)}"
           issues.push(issue(CostMismatch, parsed.declared_line, 0, message))
           valid = false
         }

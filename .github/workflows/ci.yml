@@ -51,3 +51,9 @@ jobs:
           moon run --target native cmd/moonpddl -- solve \
             examples/blocksworld/domain.pddl examples/blocksworld/problem.pddl \
             -s astar -H hmax -q
+
+      - name: Solve the numeric delivery domain optimally
+        run: |
+          moon run --target native cmd/moonpddl -- solve \
+            examples/delivery-numeric/domain.pddl examples/delivery-numeric/problem.pddl \
+            -s astar -H hmax -q

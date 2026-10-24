@@ -23,10 +23,28 @@ pub extend PAtom with Eq::{not_equal, equal}
 pub extend PAtom with @debug.Debug::{to_repr}
 
 ///|
+pub extend NumExpr with Eq::{not_equal, equal}
+
+///|
+pub extend NumExpr with @debug.Debug::{to_repr}
+
+///|
+pub extend CompareOp with Eq::{not_equal, equal}
+
+///|
+pub extend CompareOp with @debug.Debug::{to_repr}
+
+///|
 pub extend Formula with Eq::{not_equal, equal}
 
 ///|
 pub extend Formula with @debug.Debug::{to_repr}
+
+///|
+pub extend NumOp with Eq::{not_equal, equal}
+
+///|
+pub extend NumOp with @debug.Debug::{to_repr}
 
 ///|
 pub extend Effect with Eq::{not_equal, equal}
@@ -71,6 +89,12 @@ pub extend InitElem with Eq::{not_equal, equal}
 pub extend InitElem with @debug.Debug::{to_repr}
 
 ///|
+pub extend MetricDir with Eq::{not_equal, equal}
+
+///|
+pub extend MetricDir with @debug.Debug::{to_repr}
+
+///|
 pub extend Metric with Eq::{not_equal, equal}
 
 ///|
@@ -101,16 +125,40 @@ pub extend PddlError with @debug.Debug::{to_repr}
 pub extend PddlError with Show::{to_string, output}
 
 ///|
-pub extend Literal with Eq::{not_equal, equal}
+pub extend CondLit with Eq::{not_equal, equal}
 
 ///|
-pub extend Literal with @debug.Debug::{to_repr}
+pub extend CondLit with @debug.Debug::{to_repr}
+
+///|
+pub extend NumValue with Eq::{not_equal, equal}
+
+///|
+pub extend NumValue with @debug.Debug::{to_repr}
+
+///|
+pub extend GroundNumOp with Eq::{not_equal, equal}
+
+///|
+pub extend GroundNumOp with @debug.Debug::{to_repr}
+
+///|
+pub extend GroundNumEffect with Eq::{not_equal, equal}
+
+///|
+pub extend GroundNumEffect with @debug.Debug::{to_repr}
 
 ///|
 pub extend GroundAtom with Eq::{not_equal, equal}
 
 ///|
 pub extend GroundAtom with @debug.Debug::{to_repr}
+
+///|
+pub extend GroundFunc with Eq::{not_equal, equal}
+
+///|
+pub extend GroundFunc with @debug.Debug::{to_repr}
 
 ///|
 pub extend GroundEffect with Eq::{not_equal, equal}

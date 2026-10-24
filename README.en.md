@@ -2,7 +2,8 @@
 
 [![CI](https://github.com/sa2360/pddl/actions/workflows/ci.yml/badge.svg)](https://github.com/sa2360/pddl/actions/workflows/ci.yml)
 
-**A PDDL planning engine and independent plan validator written in MoonBit.**
+**A PDDL planning engine and independent plan validator written in MoonBit,
+with full PDDL 2.1 Level 1 support.**
 
 moonpddl parses standard PDDL domain and problem files, grounds them into an
 explicit state-space task, and searches forward with delete-relaxation
@@ -32,30 +33,71 @@ $ moon run --target native cmd/moonpddl -- solve \
 PDDL is the standard modelling language of classical AI planning, used by the
 International Planning Competition and a large body of planning research. A
 useful PDDL toolchain has to combine typed first-order formula compilation,
-conditional-effect and quantified grounding semantics, admissible
-delete-relaxation heuristics, forward state-space search, and a validator that
-reports precise diagnostics. Before this project was published (as of
-2026-10-21), mooncakes.io had no PDDL planner or plan validator; moonpddl brings
-this complete application domain to the MoonBit ecosystem rather than wrapping
-an existing MoonBit package.
+conditional-effect and quantified grounding semantics, full numeric fluent
+evaluation in preconditions, goals, and effects, admissible delete-relaxation
+heuristics, forward state-space search, and a validator that reports precise
+diagnostics. Before this project was published (as of 2026-10-21), mooncakes.io
+had no PDDL planner or plan validator; moonpddl brings this complete
+application domain to the MoonBit ecosystem rather than wrapping an existing
+MoonBit package.
+
+## Conformance endpoint: full PDDL 2.1 Level 1
+
+moonpddl targets a precise, checkable standard level rather than a vague
+"common subset": **the complete syntax and semantics of PDDL 2.1 Level 1
+(classical planning with numeric fluents), plus the PDDL 3.1 `:action-costs`
+requirement flag**. Level 2 and above (durative actions, continuous effects,
+the PDDL+ temporal model) are out of scope and are rejected with explicit
+errors instead of being ignored.
+
+Item-by-item coverage of the PDDL 2.1 Level 1 grammar:
+
+| Category | Support |
+| --- | --- |
+| Requirements | `:strips`, `:typing`, `:negative-preconditions`, `:disjunctive-preconditions`, `:equality`, `:existential-preconditions`, `:universal-preconditions`, `:quantified-preconditions`, `:conditional-effects`, `:fluents`, `:adl` (domain or problem), plus `:action-costs` |
+| Types | Multiple-inheritance hierarchy (`:types t - (either a b)`); objects, constants, parameters, and quantified variables all accept `(either t1 t2 ...)` with union semantics |
+| Propositional formulas | `and`, `or`, `not`, `imply`, `exists`, `forall`, object equality `=`, arbitrarily nested |
+| Numeric expressions | Integer and real literals, unary minus, `+`/`*` (n-ary), `-` (binary/unary), `/`, function terms of any arity, arbitrarily nested |
+| Numeric comparisons | `<`, `<=`, `=`, `>`, `>=` in preconditions, effect conditions, and goals |
+| Function declarations | `(:functions ...)` with any 0-ary/n-ary functions, typed parameters, `number` return type |
+| Numeric effects | `increase`, `decrease`, `assign`, `scale-up`, `scale-down` on any function with a full expression on the right-hand side, combinable with `when`/`forall` (see semantics for `total-cost`) |
+| Initial state | Propositional facts plus `(= (f args) value)` for any function; negative and fractional values allowed |
+| Optimization metric | `:metric minimize/maximize` over a full numeric expression, including the bare `total-cost` spelling |
+| Action costs | `total-cost` accumulation; cost expressions accept the spec-allowed **static function inputs**, e.g. `(increase (total-cost) (* (fuel-price) (distance ?a ?b)))` |
+| Plan text | One action per line, optional parentheses, case-insensitive, `;` comments, `; cost = N` with decimals |
+
+Unsupported constructs are rejected explicitly: durative actions,
+`:duration-inequalities`, continuous effects, derived predicates, `object`
+fluents, preferences and constraints, `:extends`, and unknown requirement
+flags — with line/column positions or concrete reasons. Every row of the table
+is pinned by tests (`conformance_wbtest.mbt` and the conformance cases in the
+other test files).
 
 ## Features
 
 - **Front end**: lexer, S-expression reader, and PDDL parser with line/column
   positions. Invalid or unsupported constructs raise a structured `PddlError`.
-- **Typed grounding**: type hierarchy, domain constants plus problem objects,
-  argument type checks, quantifier expansion, DNF compilation, conditional
-  effect factoring, and explicit limits on DNF branches and ground actions.
+- **Typed grounding**: type hierarchy (including either-types), domain
+  constants plus problem objects, argument type checks, quantifier expansion,
+  DNF compilation, conditional effect factoring, numeric expression
+  compilation, and explicit limits on DNF branches and ground actions.
+- **Reachability pruning**: after grounding, a delete-relaxation forward
+  reachability pass drops ground actions whose preconditions can never become
+  true (a sound over-approximation).
 - **Five heuristics**: `blind`, `goal-count`, `hmax`, `hadd`, and `hff`. `hmax`
-  works on the delete relaxation and is admissible for non-negative costs.
+  works on the delete relaxation and is admissible for non-negative costs;
+  numeric constraints are dropped in the relaxation, so admissibility holds
+  for the real task as well.
 - **Three searches**: GBFS, A\*, and weighted A\* (WA\*) with a binary heap,
-  best-g deduplication, node reopening in A\*, and configurable budgets.
+  best-g deduplication, node reopening in A\*, configurable budgets, and
+  fluent values participating in duplicate detection.
 - **Independent validator**: re-parses plan text, re-executes every step, and
-  reports unknown actions, bad arguments, inapplicable steps, unreached goals,
-  and `; cost = N` annotation mismatches (which invalidate the plan).
+  reports unknown actions, bad arguments, inapplicable steps (including
+  unsatisfied numeric preconditions), unreached goals, and `; cost = N`
+  annotation mismatches (which invalidate the plan).
 - **CLI and JSON**: `solve`, `validate`, `check`, and `ground` subcommands with
   stable exit codes and one-line JSON output.
-- **Reproducible project**: four runnable examples, 51 unit/integration tests,
+- **Reproducible project**: five runnable examples, 86 unit/integration tests,
   wasm and native targets, and optional benchmarks.
 
 ## Quick start
@@ -110,10 +152,10 @@ Exit codes: `0` success; `1` no plan or invalid plan; `2` usage, parse, model, o
 I/O error.
 
 ```bash
-# Solve
+# Solve a numeric domain optimally
 moon run --target native cmd/moonpddl -- solve \
-  examples/logistics/domain.pddl examples/logistics/problem.pddl \
-  -s wastar --weight 3 -H hmax
+  examples/delivery-numeric/domain.pddl examples/delivery-numeric/problem.pddl \
+  -s astar -H hmax
 
 # Validate
 moon run --target native cmd/moonpddl -- validate \
@@ -129,9 +171,9 @@ moon run --target native cmd/moonpddl -- ground \
 JSON solve output:
 
 ```json
-{"status":"solved","cost":4,"steps":4,"expanded":6,"generated":11,
+{"status":"solved","cost":34,"steps":3,"expanded":6,"generated":12,
  "heuristic":"hmax","search":"astar",
- "plan":["(pick-up b)","(stack b c)","(pick-up a)","(stack a b)"]}
+ "plan":["(drive t1 a b)","(refuel t1 b)","(drive t1 b c)"]}
 ```
 
 JSON validation output:
@@ -155,38 +197,42 @@ inspect(report.valid, content="true")
 ```
 
 Key entry points: `parse_domain`, `parse_problem`, `ground`, `solve`,
-`heuristic_value`, `validate`, `validate_plan`, and
-`ValidationReport::to_json`. `SearchResult.plan` stores indices into
-`GroundProblem.actions`; `render_plan` converts them to plan text. Reported cost
-includes the initial `total-cost` from `:init`.
+`heuristic_value`, `validate`, `validate_plan`,
+`ValidationReport::to_json`, plus the numeric helpers `eval_num_value`,
+`num_compare`, and `format_number`. `SearchResult.plan` stores indices into
+`GroundProblem.actions`; `render_plan` converts them to plan text. Reported
+cost includes the initial `total-cost` from `:init`.
 
-## Supported PDDL subset
-
-| Category | Support |
-| --- | --- |
-| Requirements | `:strips`, `:typing`, `:negative-preconditions`, `:disjunctive-preconditions`, `:equality`, `:existential-preconditions`, `:universal-preconditions`, `:quantified-preconditions`, `:conditional-effects`, `:action-costs`, `:adl` |
-| Types | Single-inheritance hierarchy; arguments accept subtypes |
-| Formulas | `and`, `or`, `not`, `imply`, `exists`, `forall`, `=`, arbitrarily nested |
-| Effects | `and`, `not`, `forall`, `when`, `(increase (total-cost) N)` |
-| Costs | `(total-cost)` only, non-negative integers with a 10^12 per-action cap, `:metric minimize (total-cost)` |
-| Plan text | One action per line, optional parentheses, case-insensitive, `;` comments |
-
-Unsupported constructs are rejected explicitly: durative actions, numeric
-fluents other than `total-cost`, `decrease`/`assign`/`scale-up`/`scale-down`,
-derived predicates, preferences and constraints, `:extends`, and unknown
-requirement flags.
-
-### Semantics
+## Semantics
 
 1. Preconditions are compiled to DNF; any satisfied disjunct makes the action
-   applicable.
-2. Conditional effect conditions are evaluated in the pre-action state, then
-   deletes and adds are collected; deletes apply first and **adds win**.
-3. Cost mode is enabled by `:action-costs`, a `total-cost` declaration, or a
-   `:metric`; actions then start at cost 0 and accumulate `increase` effects.
-   Otherwise actions have unit cost 1. Conditional costs are rejected. Costs
-   are accumulated as `Int64`, and grounding checks the per-action limit.
-4. Goals are also compiled to DNF and evaluated over the grounded atom table.
+   applicable. Numeric comparisons are constraints inside a disjunct and are
+   evaluated on the pre-action state.
+2. Conditional effect conditions (including numeric comparisons) are evaluated
+   in the pre-action state; deletes and adds are then collected, deletes apply
+   first, and **adds win**.
+3. Numeric effect right-hand sides are evaluated in the pre-action state. Per
+   fluent: `increase`/`decrease` accumulate additively, then `scale-up`/
+   `scale-down` apply in encounter order (division by zero is a no-op for that
+   effect), and `assign` overrides everything with the last assignment
+   winning. Division by zero inside a condition evaluates to 0.
+4. Cost mode is enabled by `:action-costs`, a `total-cost` effect or initial
+   assignment, or a `:metric` mentioning `total-cost`; actions then start at
+   cost 0 and accumulate `increase (total-cost)` effects. Otherwise actions
+   have unit cost 1. `total-cost` may only be increased, unconditionally.
+   Cost expressions may only read **static functions** (assigned in `:init`
+   and never modified) — matching Fast Downward. Costs are `Double`, exact
+   for integer values up to 2^53; per-action and initial costs are capped at
+   10^12 and sums saturate at 10^15.
+5. Goals are also compiled to DNF over the grounded atom and fluent tables.
+   `total-cost` never becomes a state fluent (it is the path cost `g`), so
+   conditions mentioning it are rejected.
+6. The metric direction and expression are recorded; search always minimizes
+   cost (`total-cost`). `maximize` tasks still yield valid plans, but the
+   maximization objective is not optimized.
+7. Numeric precision: fluents and costs are IEEE 754 doubles; comparisons use
+   a 1e-9 tolerance, and values close to integers are canonicalized in state
+   keys and output. Integers and simple fractions (0.5, 3.25, ...) stay exact.
 
 ## Architecture
 
@@ -198,9 +244,9 @@ S-expressions (with positions)
    │  parser.mbt → ast.mbt
    ▼
 Domain / Problem
-   │  ground.mbt (types, objects, quantifiers, DNF, conditional effects, costs)
+   │  ground.mbt (types, objects, quantifiers, DNF, numeric compilation, costs, pruning)
    ▼
-GroundProblem (atom table + bitset State + ground actions)
+GroundProblem (atom table + fluent table + bitset/array State + ground actions)
    ├── heuristics.mbt (delete relaxation: hmax / hadd / hff)
    │        └── search.mbt (GBFS / A* / WA*) → SearchResult → plan text
    └── validate.mbt (independent replay) → ValidationReport (text / JSON)
@@ -209,9 +255,9 @@ GroundProblem (atom table + bitset State + ground actions)
 | File | Responsibility |
 | --- | --- |
 | `lexer.mbt`, `sexp.mbt` | Tokenization and S-expression reading with positions |
-| `parser.mbt`, `ast.mbt` | PDDL domain/problem parsing and AST |
+| `parser.mbt`, `ast.mbt` | PDDL domain/problem parsing and AST (including numeric expressions) |
 | `error.mbt` | `PddlError`, error categories, position formatting |
-| `ground.mbt` | Type hierarchy, grounding, DNF, state and action execution |
+| `ground.mbt` | Type hierarchy, grounding, DNF, numeric state and effects, static costs, reachability pruning |
 | `heuristics.mbt` | Delete-relaxed task, `hmax`, `hadd`, `hff`, goal count |
 | `search.mbt` | Open list, GBFS/A\*/WA\*, budgets, plan reconstruction |
 | `validate.mbt` | Plan parsing, independent execution, diagnostics, JSON |
@@ -231,61 +277,71 @@ well with GBFS and WA\*.
 | [gripper](examples/gripper) | 2 balls, 2 grippers | Multiple object types and movement | 5 |
 | [logistics](examples/logistics) | 2 cities, truck + airplane | Multiple vehicles, 9-step plan | 9 |
 | [matchcellar](examples/matchcellar) | 2 matches, 2 fuses | Action costs and `:metric` | 4 |
+| [delivery-numeric](examples/delivery-numeric) | 3 places, 1 truck | Numeric fluents, static function cost inputs, numeric preconditions and effects | 34 |
 
 Each directory contains `domain.pddl`, `problem.pddl`, and a hand-checked
 `plan.pddl`:
 
 ```bash
 moon run --target native cmd/moonpddl -- validate \
-  examples/matchcellar/domain.pddl examples/matchcellar/problem.pddl \
-  examples/matchcellar/plan.pddl
-# plan valid: 4 step(s), cost 4
+  examples/delivery-numeric/domain.pddl examples/delivery-numeric/problem.pddl \
+  examples/delivery-numeric/plan.pddl
+# plan valid: 3 step(s), cost 34
 ```
 
 ## Testing and benchmarks
 
 ```bash
-moon test                                      # 51 tests on wasm
+moon test                                      # 86 tests on wasm
 moon test --target native                      # same suite on native
 moon test --include-skipped -f "benchmarks:*"  # optional benchmarks
 ```
+
+The suite includes a dedicated conformance battery (`conformance_wbtest.mbt`)
+that pins the Level 1 grammar and semantics row by row.
 
 Benchmarks use `moonbitlang/core/bench` on the blocksworld fixture. One sample
 from a local wasm debug build (10 runs, microseconds, indicative only):
 
 | Stage | Median |
 | --- | --- |
-| Parse domain + problem | ≈ 116 µs |
-| Ground (24 actions) | ≈ 188 µs |
-| GBFS + `hff` solve | ≈ 220 µs |
-| Validate a 4-step plan | ≈ 22 µs |
+| Parse domain + problem | ≈ 108 µs |
+| Ground (24 actions, incl. pruning) | ≈ 246 µs |
+| GBFS + `hff` solve | ≈ 262 µs |
+| Validate a 4-step plan | ≈ 33 µs |
 
 CI runs `moon fmt --check`, `moon check --deny-warn`, wasm and native tests, a
-native CLI build, and validates every example plan.
+native CLI build, validation of every example plan, and optimal solves of
+blocksworld and delivery-numeric.
 
 ## Limitations
 
 - Grounding is full; action counts grow combinatorially with objects. The
-  current caps are 200,000 ground actions and 8,192 DNF branches. There is no
-  reachability-based static pruning yet.
+  current caps are 200,000 ground actions and 8,192 DNF branches. Grounding is
+  followed by a delete-relaxation reachability prune, but there is no
+  relevance-analysis-based pruning at grounding time.
 - Search is forward best-first; there is no semantic pruning, landmark
   heuristic, SAS+ compilation, or symbolic search yet.
-- Numeric support is limited to `total-cost`; durative actions, continuous
-  effects, and PDDL+ temporal models are not supported. A single action cost is
-  capped at 10^12, and plan costs are accumulated as 64-bit signed integers.
+- PDDL 2.1 **Level 2 and above** (durative actions, continuous effects, the
+  PDDL+ temporal model) and the PDDL 2.2/3.x extensions (derived predicates,
+  timed initial literals, preferences, constraints) are outside the
+  conformance endpoint and are rejected explicitly.
+- Action cost expressions may only read static functions (matching Fast
+  Downward); state-dependent costs are rejected with a clear error. A
+  `maximize` metric is recorded but not optimized.
 - GBFS orders by `h` and is not optimal; use admissible `hmax + A*` when
   optimality matters.
 - The validator replays plans independently but shares the grounding semantics
   with the planner; it does not re-derive domain semantics on its own.
 
 Planned work: relevance-based grounding, landmark heuristics, plan
-post-processing, a browser/wasm demo, and broader PDDL 3 constraint support.
+post-processing, a browser/wasm demo, and PDDL 2.2 derived predicates.
 
 ## AI assistance disclosure
 
-An AI coding assistant (Qoder) helped implement code, design tests, write
+AI coding assistants (Qoder, ZCode) helped implement code, design tests, write
 documentation, and debug the CLI. All committed code was checked locally with
-`moon check`, the 51-test suite, wasm/native runs, and validation of all four
+`moon check`, the 86-test suite, wasm/native runs, and validation of all five
 example plans. The author is responsible for the final design and correctness.
 
 ## License
@@ -295,6 +351,8 @@ example plans. The author is responsible for the final design and correctness.
 ## References
 
 - D. McDermott et al., *PDDL — The Planning Domain Definition Language*.
+- M. Fox and D. Long, *PDDL2.1: An Extension to PDDL for Expressing Planning
+  Domains with Numeric Fluents*.
 - J. Hoffmann and B. Nebel, *The FF Planning System: Fast Plan Generation
   Through Heuristic Search*, JAIR 2001.
 - M. Helmert, *The Fast Downward Planning System*, JAIR 2006.

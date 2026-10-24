@@ -1,0 +1,13 @@
+(define (problem delivery-1)
+  (:domain delivery-numeric)
+  (:objects a b c - place t1 - truck)
+  (:init
+    (at t1 a)
+    (= (fuel t1) 6)
+    (= (distance a b) 4)
+    (= (distance b c) 3)
+    (= (distance a c) 9)
+    (= (fuel-price) 2)
+    (= (total-cost) 0))
+  (:goal (and (visited b) (visited c)))
+  (:metric minimize (total-cost)))

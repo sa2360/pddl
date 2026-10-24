@@ -3,15 +3,16 @@
 // SPDX-License-Identifier: MIT
 
 ///|
-/// A name decorated with its type, e.g. `?x - block` or `b1 - block`.
+/// A name with one or more declared types. `?x - (either a b)` produces the
+/// two entries `a` and `b`; a plain `?x - a` produces a single entry.
 pub(all) struct TypedName {
   name : String
-  type_name : String
+  types : Array[String]
 } derive(Eq, Debug)
 
 ///|
-/// A term occurring in a predicate: either a quantified variable or a
-/// problem constant.
+/// A term occurring in a predicate or function application: either a
+/// quantified variable or a problem constant.
 pub(all) enum Term {
   Var(String)
   Const(String)
@@ -25,6 +26,30 @@ pub(all) struct PAtom {
 } derive(Eq, Debug)
 
 ///|
+/// A numeric expression over function fluents and literals, as defined by
+/// the PDDL 2.1 `<f-exp>` grammar.
+pub(all) enum NumExpr {
+  NumLit(Double)
+  NumFunc(PAtom)
+  NumNeg(NumExpr)
+  NumAdd(NumExpr, NumExpr)
+  NumSub(NumExpr, NumExpr)
+  NumMul(NumExpr, NumExpr)
+  NumDiv(NumExpr, NumExpr)
+} derive(Eq, Debug)
+
+///|
+/// Comparison operators allowed between numeric expressions.
+pub(all) enum CompareOp {
+  CmpLT
+  CmpLE
+  CmpEQ
+  CmpNE
+  CmpGT
+  CmpGE
+} derive(Eq, Debug)
+
+///|
 /// A goal description / precondition formula.
 pub(all) enum Formula {
   Atom(PAtom)
@@ -35,12 +60,18 @@ pub(all) enum Formula {
   Exists(Array[TypedName], Formula)
   Forall(Array[TypedName], Formula)
   Equal(Term, Term)
+  Compare(CompareOp, NumExpr, NumExpr)
 } derive(Eq, Debug)
 
 ///|
-/// Largest numeric value accepted in a cost field. Keeping costs in `Int64`
-/// avoids the 32-bit wraparound that `Int32` would cause on large instances.
-const MAX_COST_VALUE : Int64 = 1_000_000_000_000L
+/// Numeric effect operators of PDDL 2.1.
+pub(all) enum NumOp {
+  OpIncrease
+  OpDecrease
+  OpAssign
+  OpScaleUp
+  OpScaleDown
+} derive(Eq, Debug)
 
 ///|
 /// An action effect.
@@ -50,15 +81,15 @@ pub(all) enum Effect {
   AndEffect(Array[Effect])
   ForallEffect(Array[TypedName], Effect)
   WhenEffect(Formula, Effect)
-  /// `(increase (total-cost) N)`.
-  IncreaseEffect(String, Int64)
+  /// `(increase|decrease|assign|scale-up|scale-down (<function> ...) expr)`
+  NumEffect(NumOp, PAtom, NumExpr)
 } derive(Eq, Debug)
 
 ///|
-/// A type declaration with its direct supertype (`object` for root types).
+/// A type declaration with its direct supertypes (`object` for root types).
 pub(all) struct TypeDecl {
   name : String
-  parent : String
+  parents : Array[String]
 } derive(Eq, Debug)
 
 ///|
@@ -69,7 +100,8 @@ pub(all) struct Predicate {
 } derive(Eq, Debug)
 
 ///|
-/// A function declaration. Only the 0-ary `total-cost` function is supported.
+/// A function declaration. Functions return `number`; `object` fluents are
+/// outside the supported endpoint.
 pub(all) struct FunctionDecl {
   name : String
   params : Array[TypedName]
@@ -100,13 +132,21 @@ pub(all) struct Domain {
 /// One entry of a problem's `:init` section.
 pub(all) enum InitElem {
   InitFact(PAtom)
-  InitCost(Int64)
+  /// `(= (<function> args) value)`
+  InitFunc(PAtom, Double)
 } derive(Eq, Debug)
 
 ///|
-/// The supported optimization metric.
+/// Direction of the optimization metric.
+pub(all) enum MetricDir {
+  Minimize
+  Maximize
+} derive(Eq, Debug)
+
+///|
+/// The optimization metric with its numeric expression.
 pub(all) enum Metric {
-  MinimizeTotalCost
+  Metric(MetricDir, NumExpr)
 } derive(Eq, Debug)
 
 ///|

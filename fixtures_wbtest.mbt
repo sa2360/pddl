@@ -120,6 +120,71 @@ let conditional_problem =
   #|
 
 ///|
+let delivery_domain =
+  #|(define (domain delivery-numeric)
+  #|  (:requirements :strips :typing :negative-preconditions :fluents :action-costs)
+  #|  (:types place truck)
+  #|  (:predicates
+  #|    (at ?t - truck ?p - place)
+  #|    (visited ?p - place))
+  #|  (:functions
+  #|    (fuel ?t - truck) - number
+  #|    (distance ?from - place ?to - place) - number
+  #|    (fuel-price) - number
+  #|    (total-cost) - number)
+  #|  (:action drive
+  #|    :parameters (?t - truck ?from - place ?to - place)
+  #|    :precondition (and (at ?t ?from)
+  #|                       (>= (fuel ?t) (distance ?from ?to)))
+  #|    :effect (and (not (at ?t ?from)) (at ?t ?to) (visited ?to)
+  #|                 (decrease (fuel ?t) (distance ?from ?to))
+  #|                 (increase (total-cost) (* (fuel-price) (distance ?from ?to)))))
+  #|  (:action refuel
+  #|    :parameters (?t - truck ?p - place)
+  #|    :precondition (at ?t ?p)
+  #|    :effect (and (increase (fuel ?t) 10)
+  #|                 (increase (total-cost) (* (fuel-price) 10)))))
+  #|
+
+///|
+let delivery_problem =
+  #|(define (problem delivery-1)
+  #|  (:domain delivery-numeric)
+  #|  (:objects a b c - place t1 - truck)
+  #|  (:init
+  #|    (at t1 a)
+  #|    (= (fuel t1) 6)
+  #|    (= (distance a b) 4)
+  #|    (= (distance b c) 3)
+  #|    (= (distance a c) 9)
+  #|    (= (fuel-price) 2)
+  #|    (= (total-cost) 0))
+  #|  (:goal (and (visited b) (visited c)))
+  #|  (:metric minimize (total-cost)))
+  #|
+
+///|
+let either_domain =
+  #|(define (domain either-demo)
+  #|  (:requirements :typing :negative-preconditions)
+  #|  (:types block ball container)
+  #|  (:predicates (held ?x - (either block ball)))
+  #|  (:action grab
+  #|    :parameters (?x - (either block ball))
+  #|    :precondition (not (held ?x))
+  #|    :effect (held ?x)))
+  #|
+
+///|
+let either_problem =
+  #|(define (problem either-1)
+  #|  (:domain either-demo)
+  #|  (:objects a - block b - ball c - container)
+  #|  (:init)
+  #|  (:goal (and (held a) (held b))))
+  #|
+
+///|
 fn find_ground_action(
   problem : GroundProblem,
   name : String,
@@ -141,4 +206,14 @@ fn find_atom(problem : GroundProblem, text : String) -> Int32 {
     }
   }
   abort("atom not found: \{text}")
+}
+
+///|
+fn find_fluent(problem : GroundProblem, text : String) -> Int32 {
+  for i in 0..<problem.funcs.length() {
+    if problem.funcs[i].render() == text {
+      return i
+    }
+  }
+  abort("fluent not found: \{text}")
 }

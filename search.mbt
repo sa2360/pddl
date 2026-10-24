@@ -46,7 +46,7 @@ pub(all) enum SearchStatus {
 pub(all) struct SearchResult {
   status : SearchStatus
   plan : Array[Int32]
-  cost : Int64
+  cost : Double
   expanded : Int32
   generated : Int32
 } derive(Debug)
@@ -80,16 +80,16 @@ priv struct SearchNode {
   state : State
   parent : Int32
   action : Int32
-  g : Int64
-  h : Int64
+  g : Double
+  h : Double
 }
 
 ///|
 priv struct OpenEntry {
   node : Int32
-  f : Int64
-  h : Int64
-  g : Int64
+  f : Double
+  h : Double
+  g : Double
   order : Int32
 }
 
@@ -168,22 +168,23 @@ fn OpenList::pop(self : OpenList) -> OpenEntry? {
 
 ///|
 fn search_priority(
-  g : Int64,
-  h : Int64,
-  weight : Int32,
+  g : Double,
+  h : Double,
+  weight : Double,
   greedy : Bool,
-) -> Int64 {
+) -> Double {
   if greedy {
     return h
   }
-  if h <= 0L {
+  if h <= 0.0 {
     return g
   }
-  let weight64 = Int64::from_int(weight)
-  if weight64 > 1L && h > HEURISTIC_INF / weight64 {
-    return HEURISTIC_INF
+  let f = g + h * weight
+  if f >= HEURISTIC_INF {
+    HEURISTIC_INF
+  } else {
+    f
   }
-  capped_add(g, h * weight64)
 }
 
 ///|
@@ -213,7 +214,7 @@ fn failed_result(
   generated : Int32,
 ) -> SearchResult {
   let plan : Array[Int32] = []
-  { status, plan, cost: 0L, expanded, generated, }
+  { status, plan, cost: 0.0, expanded, generated, }
 }
 
 ///|
@@ -231,8 +232,13 @@ pub fn solve(
 ) -> SearchResult {
   let task = RelaxedTask::make(problem)
   let weight = match algorithm {
-    WeightedAStar(candidate) => if candidate < 1 { 1 } else { candidate }
-    _ => 1
+    WeightedAStar(candidate) =>
+      if candidate < 1 {
+        1.0
+      } else {
+        Int64::from_int(candidate).to_double()
+      }
+    _ => 1.0
   }
   let greedy = match algorithm {
     GBFS => true
@@ -249,7 +255,7 @@ pub fn solve(
     }
   }
   let initial_h = estimate(heuristic, task, problem, problem.initial)
-  if initial_h < 0L {
+  if initial_h < 0.0 {
     return failed_result(Exhausted, 0, 1)
   }
   let nodes : Array[SearchNode] = []
@@ -257,19 +263,19 @@ pub fn solve(
     state: problem.initial.copy(),
     parent: -1,
     action: -1,
-    g: 0L,
+    g: 0.0,
     h: initial_h,
   })
   let open = OpenList::make()
   open.push({
     node: 0,
-    f: search_priority(0L, initial_h, weight, greedy),
+    f: search_priority(0.0, initial_h, weight, greedy),
     h: initial_h,
-    g: 0L,
+    g: 0.0,
     order: 0,
   })
-  let best_g : Map[String, Int64] = Map([])
-  best_g.set(problem.initial.key(), 0L)
+  let best_g : Map[String, Double] = Map([])
+  best_g.set(problem.initial.key(), 0.0)
   let closed : Map[String, Bool] = Map([])
   let mut next_order = 1
   let mut expanded = 0
@@ -307,7 +313,7 @@ pub fn solve(
     if greedy {
       closed.set(key, true)
     }
-    if node.h < 0L {
+    if node.h < 0.0 {
       continue
     }
     if expanded >= max_expanded {
@@ -334,7 +340,7 @@ pub fn solve(
       }
       let next_h = estimate(heuristic, task, problem, next_state)
       let reaches_goal = problem.goal_holds(next_state)
-      if next_h < 0L && !reaches_goal {
+      if next_h < 0.0 && !reaches_goal {
         continue
       }
       if nodes.length() >= max_generated {

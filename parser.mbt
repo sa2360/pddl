@@ -6,6 +6,7 @@
 /// A name collected while reading a typed list.
 priv struct PendingName {
   name : String
+  mut types : Array[String]
 }
 
 ///|
@@ -72,6 +73,64 @@ fn check_duplicates(
 }
 
 ///|
+/// Parses a PDDL type annotation after `-`. Returns the type names and the
+/// index of the first item after the annotation. A single atom is one type;
+/// `(either a b ...)` is a union of types.
+fn parse_type_annotation(
+  items : ArrayView[Sexp],
+  dash_index : Int32,
+  context : String,
+) -> (Array[String], Int32) raise PddlError {
+  let pos = sexp_pos(items[dash_index])
+  if dash_index + 1 >= items.length() {
+    raise syntax_error(pos, "expected a type name after '-'")
+  }
+  match items[dash_index + 1] {
+    SList(inner, inner_pos) => {
+      if inner.length() == 0 {
+        raise syntax_error(inner_pos, "empty '(either ...)' in \{context}")
+      }
+      let (head, _) = expect_atom(inner[0], "'either'")
+      if head != "either" {
+        raise syntax_error(
+          inner_pos,
+          "expected a type name or '(either ...)' after '-', found a list starting with '\{head}'",
+        )
+      }
+      if inner.length() < 2 {
+        raise syntax_error(
+          inner_pos,
+          "'(either ...)' needs at least one type in \{context}",
+        )
+      }
+      let types : Array[String] = []
+      for i in 1..<inner.length() {
+        let (name, name_pos) = expect_atom(
+          inner[i],
+          "a type name in '(either ...)'",
+        )
+        if name.get_char(0) == Some(':') {
+          raise syntax_error(name_pos, "invalid type name '\{name}'")
+        }
+        types.push(name)
+      }
+      (types, dash_index + 2)
+    }
+    SVar(name, var_pos) =>
+      raise syntax_error(
+        var_pos,
+        "expected a type name after '-', found variable '?\{name}'",
+      )
+    SAtom(text, atom_pos) => {
+      if text.get_char(0) == Some(':') {
+        raise syntax_error(atom_pos, "invalid type name '\{text}'")
+      }
+      ([text], dash_index + 2)
+    }
+  }
+}
+
+///|
 /// Parses a PDDL typed list. When `vars` is true the entries must be
 /// variables (`?x`); otherwise they must be plain names.
 fn parse_typed_list(
@@ -90,15 +149,12 @@ fn parse_typed_list(
           if pending.length() == 0 {
             raise syntax_error(pos, "unexpected '-' in \{context}")
           }
-          if i + 1 >= items.length() {
-            raise syntax_error(pos, "expected a type name after '-'")
-          }
-          let (parent, _) = expect_atom(items[i + 1], "a type name")
+          let (types, next) = parse_type_annotation(items, i, context)
           for entry in pending {
-            result.push({ name: entry.name, type_name: parent, })
+            result.push({ name: entry.name, types: types.copy(), })
           }
           pending.clear()
-          i += 2
+          i = next
         } else {
           if vars {
             raise syntax_error(
@@ -106,7 +162,7 @@ fn parse_typed_list(
               "expected a variable in \{context}, found '\{name}'",
             )
           }
-          pending.push({ name, })
+          pending.push({ name, types: [], })
           i += 1
         }
       SVar(name, pos) => {
@@ -116,7 +172,7 @@ fn parse_typed_list(
             "expected a name in \{context}, found variable '?\{name}'",
           )
         }
-        pending.push({ name, })
+        pending.push({ name, types: [], })
         i += 1
       }
       SList(_, pos) =>
@@ -124,7 +180,7 @@ fn parse_typed_list(
     }
   }
   for entry in pending {
-    result.push({ name: entry.name, type_name: default_type, })
+    result.push({ name: entry.name, types: [default_type], })
   }
   result
 }
@@ -134,7 +190,7 @@ fn supported_requirement(req : String) -> Bool {
   let supported = [
     ":strips", ":typing", ":negative-preconditions", ":disjunctive-preconditions",
     ":equality", ":existential-preconditions", ":universal-preconditions", ":quantified-preconditions",
-    ":conditional-effects", ":action-costs", ":adl",
+    ":conditional-effects", ":fluents", ":action-costs", ":adl",
   ]
   supported.contains(req)
 }
@@ -159,27 +215,89 @@ fn parse_requirements(items : ArrayView[Sexp]) -> Array[String] raise PddlError 
 }
 
 ///|
+fn is_reserved_name(name : String) -> Bool {
+  let reserved = [
+    "and", "or", "not", "imply", "exists", "forall", "either", "=", "<", "<=", ">",
+    ">=", "when", "increase", "decrease", "assign", "scale-up", "scale-down",
+  ]
+  reserved.contains(name)
+}
+
+///|
+fn push_type_decl(
+  result : Array[TypeDecl],
+  seen : Map[String, Bool],
+  pos : Position,
+  name : String,
+  parents : Array[String],
+) -> Unit raise PddlError {
+  if name == "object" {
+    raise syntax_error(
+      pos, "type 'object' is predefined and cannot be redeclared",
+    )
+  }
+  if name.get_char(0) == Some(':') {
+    raise syntax_error(pos, "invalid type name '\{name}'")
+  }
+  if seen.contains(name) {
+    raise syntax_error(pos, "duplicate type '\{name}'")
+  }
+  seen.set(name, true)
+  result.push({
+    name,
+    parents: if parents.length() > 0 {
+      parents.copy()
+    } else {
+      ["object"]
+    },
+  })
+}
+
+///|
 fn parse_type_section(
   items : ArrayView[Sexp],
   pos : Position,
 ) -> Array[TypeDecl] raise PddlError {
-  let typed = parse_typed_list(items, false, "object", ":types")
   let result : Array[TypeDecl] = []
   let seen : Map[String, Bool] = Map([])
-  for entry in typed {
-    if entry.name == "object" {
-      raise syntax_error(
-        pos, "type 'object' is predefined and cannot be redeclared",
-      )
+  let pending : Array[PendingName] = []
+  let mut i = 0
+  while i < items.length() {
+    match items[i] {
+      SAtom(name, type_pos) =>
+        if name == "-" {
+          if pending.length() == 0 {
+            raise syntax_error(type_pos, "unexpected '-' in :types")
+          }
+          let (parents, next) = parse_type_annotation(items, i, ":types")
+          for entry in pending {
+            entry.types = parents.copy()
+          }
+          i = next
+          for entry in pending {
+            push_type_decl(result, seen, pos, entry.name, entry.types)
+          }
+          pending.clear()
+        } else {
+          if name.get_char(0) == Some(':') {
+            raise syntax_error(type_pos, "invalid type name '\{name}'")
+          }
+          pending.push({ name, types: [], })
+          i += 1
+        }
+      SVar(name, var_pos) =>
+        raise syntax_error(
+          var_pos,
+          "expected a type name in :types, found variable '?\{name}'",
+        )
+      SList(_, list_pos) =>
+        raise syntax_error(
+          list_pos, "expected a type name in :types, found '('",
+        )
     }
-    if entry.name.get_char(0) == Some(':') {
-      raise syntax_error(pos, "invalid type name '\{entry.name}'")
-    }
-    if seen.contains(entry.name) {
-      raise syntax_error(pos, "duplicate type '\{entry.name}'")
-    }
-    seen.set(entry.name, true)
-    result.push({ name: entry.name, parent: entry.type_name, })
+  }
+  for entry in pending {
+    push_type_decl(result, seen, pos, entry.name, entry.types)
   }
   let known : Map[String, Bool] = Map([])
   known.set("object", true)
@@ -187,47 +305,49 @@ fn parse_type_section(
     known.set(decl.name, true)
   }
   for decl in result {
-    if !known.contains(decl.parent) {
-      raise syntax_error(
-        pos,
-        "unknown supertype '\{decl.parent}' for type '\{decl.name}'",
-      )
+    for parent in decl.parents {
+      if !known.contains(parent) {
+        raise syntax_error(
+          pos,
+          "unknown supertype '\{parent}' for type '\{decl.name}'",
+        )
+      }
     }
   }
-  let parents : Map[String, String] = Map([])
+  let parents : Map[String, Array[String]] = Map([])
   for decl in result {
-    parents.set(decl.name, decl.parent)
+    parents.set(decl.name, decl.parents)
   }
   for decl in result {
-    let mut cur = decl.parent
+    let queue = decl.parents.copy()
+    let visited : Map[String, Bool] = Map([])
     let mut steps = 0
-    while cur != "object" && steps <= result.length() {
-      if cur == decl.name {
+    while queue.length() > 0 && steps <= result.length() + 1 {
+      let current = queue.remove(0)
+      steps += 1
+      if current == decl.name {
         raise syntax_error(
           pos,
           "cyclic type hierarchy involving '\{decl.name}'",
         )
       }
-      cur = match parents.get(cur) {
-        Some(parent) => parent
-        None => "object"
+      if visited.contains(current) {
+        continue
       }
-      steps += 1
+      visited.set(current, true)
+      match parents.get(current) {
+        Some(next) =>
+          for p in next {
+            queue.push(p)
+          }
+        None => ()
+      }
     }
-    if steps > result.length() {
+    if steps > result.length() + 1 {
       raise syntax_error(pos, "cyclic type hierarchy involving '\{decl.name}'")
     }
   }
   result
-}
-
-///|
-fn is_reserved_formula_word(name : String) -> Bool {
-  let reserved = [
-    "and", "or", "not", "imply", "exists", "forall", "=", "when", "increase", "decrease",
-    "assign", "scale-up", "scale-down",
-  ]
-  reserved.contains(name)
 }
 
 ///|
@@ -242,7 +362,7 @@ fn parse_predicates(
       raise syntax_error(decl_pos, "empty predicate declaration")
     }
     let (name, name_pos) = expect_atom(decl[0], "a predicate name")
-    if name == "=" || is_reserved_formula_word(name) {
+    if is_reserved_name(name) {
       raise syntax_error(
         name_pos,
         "'\{name}' is reserved and cannot be used as a predicate name",
@@ -268,6 +388,9 @@ fn parse_predicates(
 }
 
 ///|
+/// Parses the `:functions` section. Every function returns `number`;
+/// the return type annotation is optional and, when present, must be
+/// `number` (PDDL `object` fluents are outside the endpoint).
 fn parse_functions(
   items : ArrayView[Sexp],
   section_pos : Position,
@@ -282,26 +405,37 @@ fn parse_functions(
           raise syntax_error(decl_pos, "empty function declaration")
         }
         let (name, name_pos) = expect_atom(decl[0], "a function name")
-        if name != "total-cost" {
-          raise unsupported_error(
+        if is_reserved_name(name) {
+          raise syntax_error(
             name_pos,
-            "function '\{name}'; only the 0-ary total-cost function is supported",
+            "'\{name}' is reserved and cannot be used as a function name",
           )
         }
-        if decl.length() != 1 {
-          raise unsupported_error(
-            decl_pos, "arguments on total-cost; it must be 0-ary",
-          )
+        if name.get_char(0) == Some(':') {
+          raise syntax_error(name_pos, "invalid function name '\{name}'")
         }
         if seen.contains(name) {
           raise syntax_error(name_pos, "duplicate function '\{name}'")
         }
         seen.set(name, true)
-        result.push({ name: "total-cost", params: [], })
+        let params = parse_typed_list(
+          decl[1:],
+          true,
+          "object",
+          "function '\{name}'",
+        )
+        check_duplicates(params, "parameter", decl_pos)
+        if name == "total-cost" && params.length() > 0 {
+          raise syntax_error(decl_pos, "total-cost must be declared 0-ary")
+        }
+        result.push({ name, params, })
         i += 1
       }
       SAtom(text, atom_pos) =>
         if text == "-" {
+          if result.length() == 0 {
+            raise syntax_error(section_pos, "empty ':functions' section")
+          }
           if i + 1 >= items.length() {
             raise syntax_error(atom_pos, "expected 'number' after '-'")
           }
@@ -309,7 +443,7 @@ fn parse_functions(
           if ty != "number" {
             raise unsupported_error(
               ty_pos,
-              "function type '\{ty}'; only :number is supported",
+              "function type '\{ty}'; functions must return number (object fluents are not supported)",
             )
           }
           i += 2
@@ -488,9 +622,9 @@ fn parse_term(node : Sexp, context : String) -> Term raise PddlError {
     SAtom(name, _) => Const(name)
     SVar(name, _) => Var(name)
     SList(_, pos) =>
-      raise unsupported_error(
+      raise syntax_error(
         pos,
-        "function term in \{context}; numeric fluents other than total-cost are not supported",
+        "expected an object or variable in \{context}, found '('",
       )
   }
 }
@@ -516,6 +650,172 @@ fn parse_atom(
     args.push(parse_term(items[i], context))
   }
   { name, args, }
+}
+
+///|
+/// Parses a number literal: an optional sign, digits and an optional
+/// fractional part. Returns `None` when the text is not a number or when it
+/// exceeds the supported precision (15 integer digits, 12 fraction digits).
+fn parse_number(text : String) -> Double? {
+  let chars = text.to_array()
+  if chars.length() == 0 {
+    return None
+  }
+  let mut index = 0
+  let mut negative = false
+  if chars[0] == '-' {
+    negative = true
+    index = 1
+    if chars.length() == 1 {
+      return None
+    }
+  }
+  let int_digits : Array[Char] = []
+  while index < chars.length() && chars[index] >= '0' && chars[index] <= '9' {
+    int_digits.push(chars[index])
+    index += 1
+  }
+  if int_digits.length() == 0 {
+    return None
+  }
+  if int_digits.length() > 15 {
+    return None
+  }
+  let frac_digits : Array[Char] = []
+  if index < chars.length() && chars[index] == '.' {
+    index += 1
+    while index < chars.length() && chars[index] >= '0' && chars[index] <= '9' {
+      frac_digits.push(chars[index])
+      index += 1
+    }
+    if frac_digits.length() == 0 {
+      return None
+    }
+    if frac_digits.length() > 12 {
+      return None
+    }
+  }
+  if index != chars.length() {
+    return None
+  }
+  let mut int_part = 0L
+  for c in int_digits {
+    int_part = int_part * 10L + Int64::from_int(c.to_int() - 48)
+  }
+  let mut frac_part = 0L
+  for c in frac_digits {
+    frac_part = frac_part * 10L + Int64::from_int(c.to_int() - 48)
+  }
+  let mut scale = 1.0
+  let mut digit_index = 0
+  while digit_index < frac_digits.length() {
+    scale = scale * 10.0
+    digit_index += 1
+  }
+  let mut value = int_part.to_double() + frac_part.to_double() / scale
+  if negative {
+    value = -value
+  }
+  Some(value)
+}
+
+///|
+fn is_numeric_literal(node : Sexp) -> Bool {
+  match node {
+    SAtom(text, _) => parse_number(text) is Some(_)
+    _ => false
+  }
+}
+
+///|
+/// True when the operand must be read as a numeric expression: any list
+/// (function application or arithmetic) or a numeric literal.
+fn is_numeric_operand(node : Sexp) -> Bool {
+  match node {
+    SList(_, _) => true
+    other => is_numeric_literal(other)
+  }
+}
+
+///|
+/// Parses a PDDL 2.1 `<f-exp>` numeric expression.
+fn parse_num_expr(node : Sexp) -> NumExpr raise PddlError {
+  match node {
+    SAtom(text, _) =>
+      match parse_number(text) {
+        Some(value) => NumLit(value)
+        None => NumFunc({ name: text, args: [], })
+      }
+    SVar(name, pos) =>
+      raise syntax_error(
+        pos,
+        "variable '?\{name}' cannot appear in a numeric expression",
+      )
+    SList(items, pos) => {
+      if items.length() == 0 {
+        raise syntax_error(pos, "empty numeric expression")
+      }
+      let (head, head_pos) = expect_atom(
+        items[0],
+        "a numeric operator or function name",
+      )
+      if head == "+" || head == "*" {
+        if items.length() < 3 {
+          raise syntax_error(
+            head_pos,
+            "'\{head}' needs at least two operands in a numeric expression",
+          )
+        }
+        let mut acc = parse_num_expr(items[1])
+        for i in 2..<items.length() {
+          let rhs = parse_num_expr(items[i])
+          acc = if head == "+" { NumAdd(acc, rhs) } else { NumMul(acc, rhs) }
+        }
+        acc
+      } else if head == "-" {
+        if items.length() == 2 {
+          NumNeg(parse_num_expr(items[1]))
+        } else if items.length() >= 3 {
+          let mut acc = parse_num_expr(items[1])
+          for i in 2..<items.length() {
+            acc = NumSub(acc, parse_num_expr(items[i]))
+          }
+          acc
+        } else {
+          raise syntax_error(
+            head_pos, "'-' needs at least one operand in a numeric expression",
+          )
+        }
+      } else if head == "/" {
+        if items.length() != 3 {
+          raise syntax_error(head_pos, "'/' expects exactly two operands")
+        }
+        NumDiv(parse_num_expr(items[1]), parse_num_expr(items[2]))
+      } else if head == "=" ||
+        head == "<" ||
+        head == "<=" ||
+        head == ">" ||
+        head == ">=" {
+        raise syntax_error(
+          head_pos,
+          "comparison '\{head}' cannot appear inside a numeric expression",
+        )
+      } else {
+        NumFunc(parse_atom(items, pos, "numeric expression"))
+      }
+    }
+  }
+}
+
+///|
+fn compare_op_of(head : String) -> CompareOp {
+  match head {
+    "<" => CmpLT
+    "<=" => CmpLE
+    ">" => CmpGT
+    ">=" => CmpGE
+    _ => CmpEQ
+  }
 }
 
 ///|
@@ -578,15 +878,36 @@ fn parse_formula(node : Sexp) -> Formula raise PddlError {
         } else {
           Forall(vars, body)
         }
-      } else if head == "=" {
-        if items.length() != 3 {
-          raise syntax_error(head_pos, "'=' expects exactly two terms")
-        }
+      } else if head == "=" &&
+        items.length() == 3 &&
+        !is_numeric_operand(items[1]) &&
+        !is_numeric_operand(items[2]) {
         Equal(
           parse_term(items[1], "equality"),
           parse_term(items[2], "equality"),
         )
-      } else if head == "when" || head == "increase" {
+      } else if head == "=" ||
+        head == "<" ||
+        head == "<=" ||
+        head == ">" ||
+        head == ">=" {
+        if items.length() != 3 {
+          raise syntax_error(
+            head_pos,
+            "'\{head}' expects exactly two expressions",
+          )
+        }
+        Compare(
+          compare_op_of(head),
+          parse_num_expr(items[1]),
+          parse_num_expr(items[2]),
+        )
+      } else if head == "when" ||
+        head == "increase" ||
+        head == "decrease" ||
+        head == "assign" ||
+        head == "scale-up" ||
+        head == "scale-down" {
         raise syntax_error(head_pos, "'\{head}' is only allowed in effects")
       } else if head.get_char(0) == Some(':') {
         raise unsupported_error(head_pos, "formula operator '\{head}'")
@@ -598,46 +919,34 @@ fn parse_formula(node : Sexp) -> Formula raise PddlError {
 }
 
 ///|
-fn parse_increase(
+fn parse_numeric_effect(
   items : Array[Sexp],
+  head : String,
   pos : Position,
 ) -> Effect raise PddlError {
   if items.length() != 3 {
-    raise syntax_error(pos, "'increase' expects a function term and an amount")
+    raise syntax_error(
+      pos,
+      "'\{head}' expects a function term and an expression",
+    )
   }
-  let fname = match items[1] {
-    SAtom(name, _) => name
-    SList(inner, list_pos) => {
-      if inner.length() != 1 {
-        raise unsupported_error(list_pos, "function term in increase")
-      }
-      let (name, _) = expect_atom(inner[0], "a function name")
-      name
-    }
+  let fluent : PAtom = match items[1] {
+    SAtom(name, _) => { name, args: [], }
+    SList(inner, inner_pos) => parse_atom(inner, inner_pos, "numeric effect")
     SVar(name, var_pos) =>
       raise syntax_error(
         var_pos,
         "expected a function term, found variable '?\{name}'",
       )
   }
-  if fname != "total-cost" {
-    raise unsupported_error(
-      pos,
-      "numeric fluent '\{fname}'; only total-cost is supported",
-    )
+  let op = match head {
+    "increase" => OpIncrease
+    "decrease" => OpDecrease
+    "assign" => OpAssign
+    "scale-up" => OpScaleUp
+    _ => OpScaleDown
   }
-  let (amount_text, amount_pos) = expect_atom(
-    items[2],
-    "a non-negative integer",
-  )
-  match parse_int(amount_text) {
-    Some(amount) => IncreaseEffect("total-cost", amount)
-    None =>
-      raise syntax_error(
-        amount_pos,
-        "expected a non-negative integer, found '\{amount_text}'",
-      )
-  }
+  NumEffect(op, fluent, parse_num_expr(items[2]))
 }
 
 ///|
@@ -693,20 +1002,21 @@ fn parse_effect(node : Sexp) -> Effect raise PddlError {
           )
         }
         WhenEffect(parse_formula(items[1]), parse_effect(items[2]))
-      } else if head == "increase" {
-        parse_increase(items, head_pos)
-      } else if head == "decrease" ||
+      } else if head == "increase" ||
+        head == "decrease" ||
         head == "assign" ||
         head == "scale-up" ||
         head == "scale-down" {
-        raise unsupported_error(
-          head_pos,
-          "numeric effect '\{head}'; only (increase (total-cost) N) is supported",
-        )
+        parse_numeric_effect(items, head, head_pos)
       } else if head == "or" || head == "exists" {
         raise syntax_error(head_pos, "'\{head}' is not allowed in effects")
       } else if head == "=" {
         raise unsupported_error(head_pos, "equality in effects")
+      } else if head == "<" || head == "<=" || head == ">" || head == ">=" {
+        raise syntax_error(
+          head_pos,
+          "comparison '\{head}' is not allowed in effects",
+        )
       } else if head.get_char(0) == Some(':') {
         raise unsupported_error(head_pos, "effect operator '\{head}'")
       } else {
@@ -717,22 +1027,37 @@ fn parse_effect(node : Sexp) -> Effect raise PddlError {
 }
 
 ///|
-fn parse_int(text : String) -> Int64? {
-  if text == "" {
-    return None
-  }
-  let mut value = 0L
-  for c in text.to_array() {
-    if c < '0' || c > '9' {
-      return None
+fn parse_init_func_app(node : Sexp, context : String) -> PAtom raise PddlError {
+  match node {
+    SAtom(name, pos) => {
+      if name.get_char(0) == Some(':') {
+        raise syntax_error(
+          pos,
+          "expected a function name, found keyword '\{name}'",
+        )
+      }
+      { name, args: [], }
     }
-    let digit = Int64::from_int(c.to_int() - 48)
-    if value > (MAX_COST_VALUE - digit) / 10L {
-      return None
+    SList(inner, pos) => {
+      let atom = parse_atom(inner, pos, context)
+      for arg in atom.args {
+        match arg {
+          Var(name) =>
+            raise syntax_error(
+              pos,
+              "variable '?\{name}' is not allowed in \{context}",
+            )
+          Const(_) => ()
+        }
+      }
+      atom
     }
-    value = value * 10L + digit
+    SVar(name, var_pos) =>
+      raise syntax_error(
+        var_pos,
+        "expected a function term in \{context}, found variable '?\{name}'",
+      )
   }
-  Some(value)
 }
 
 ///|
@@ -744,33 +1069,29 @@ fn parse_init_elem(node : Sexp) -> InitElem raise PddlError {
   let (head, head_pos) = expect_atom(items[0], "a predicate name")
   if head == "=" {
     if items.length() != 3 {
-      raise syntax_error(pos, "expected (= (total-cost) <number>)")
+      raise syntax_error(pos, "expected (= (<function> ...) <number>)")
     }
-    let (lhs, lhs_pos) = expect_list(items[1], "a function term")
-    if lhs.length() != 1 {
-      raise unsupported_error(
-        lhs_pos, "function term in :init; only (total-cost) is supported",
-      )
-    }
-    let (fname, fname_pos) = expect_atom(lhs[0], "'total-cost'")
-    if fname != "total-cost" {
-      raise unsupported_error(fname_pos, "numeric fluent '\{fname}' in :init")
-    }
-    let (value_text, value_pos) = expect_atom(
-      items[2],
-      "a non-negative integer",
-    )
-    match parse_int(value_text) {
-      Some(value) => InitCost(value)
+    let fluent = parse_init_func_app(items[1], ":init")
+    let (value_text, value_pos) = expect_atom(items[2], "a number")
+    match parse_number(value_text) {
+      Some(value) => InitFunc(fluent, value)
       None =>
         raise syntax_error(
           value_pos,
-          "expected a non-negative integer, found '\{value_text}'",
+          "expected a number, found '\{value_text}'",
         )
     }
   } else if head == "not" {
     raise unsupported_error(
       head_pos, "negated init literals; PDDL :init is a positive closed-world state",
+    )
+  } else if head == "increase" ||
+    head == "decrease" ||
+    head == "assign" ||
+    head == "scale-up" ||
+    head == "scale-down" {
+    raise syntax_error(
+      head_pos, "numeric effects are not allowed in :init; assign a value with (= (<function> ...) <number>)",
     )
   } else if head.get_char(0) == Some(':') {
     raise syntax_error(
@@ -790,32 +1111,20 @@ fn parse_metric(
   if items.length() != 2 {
     raise syntax_error(pos, "':metric' expects a direction and an expression")
   }
-  let (direction, direction_pos) = expect_atom(items[0], "'minimize'")
-  if direction != "minimize" {
-    raise unsupported_error(
-      direction_pos,
-      "metric direction '\{direction}'; only minimize is supported",
-    )
+  let (direction, direction_pos) = expect_atom(
+    items[0],
+    "'minimize' or 'maximize'",
+  )
+  let dir = match direction {
+    "minimize" => Minimize
+    "maximize" => Maximize
+    _ =>
+      raise unsupported_error(
+        direction_pos,
+        "metric direction '\{direction}'; only minimize and maximize are supported",
+      )
   }
-  let target_ok = match items[1] {
-    SAtom(name, _) => name == "total-cost"
-    SList(inner, _) =>
-      if inner.length() == 1 {
-        match inner[0] {
-          SAtom(name, _) => name == "total-cost"
-          _ => false
-        }
-      } else {
-        false
-      }
-    SVar(_, _) => false
-  }
-  if !target_ok {
-    raise unsupported_error(
-      pos, "metric expression; only (minimize (total-cost)) is supported",
-    )
-  }
-  MinimizeTotalCost
+  Metric(dir, parse_num_expr(items[1]))
 }
 
 ///|

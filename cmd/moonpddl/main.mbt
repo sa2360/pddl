@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: MIT
 
 ///|
-const VERSION : String = "0.1.0"
+const VERSION : String = "0.2.0"
 
 ///|
 fn usage() -> String {
   let text =
-    #|moonpddl - PDDL planning engine and independent plan validator
+    #|moonpddl - PDDL 2.1 Level 1 planning engine and independent plan validator
     #|Usage:
     #|  moonpddl solve <domain.pddl> <problem.pddl> [options]
     #|  moonpddl validate <domain.pddl> <problem.pddl> <plan.txt> [--json]
@@ -133,7 +133,7 @@ fn search_json(
   sb.write_string("{\"status\":\"")
   sb.write_string(search_status_name(result.status))
   sb.write_string("\",\"cost\":")
-  sb.write_string(result.cost.to_string())
+  sb.write_string(@pddl.format_number(result.cost))
   sb.write_string(",\"steps\":")
   sb.write_string(result.plan.length().to_string())
   sb.write_string(",\"expanded\":")
@@ -172,8 +172,10 @@ fn model_json(problem : @pddl.GroundProblem, detailed : Bool) -> String {
   sb.write_string(problem.actions.length().to_string())
   sb.write_string(",\"goal_disjuncts\":")
   sb.write_string(problem.goal.length().to_string())
+  sb.write_string(",\"fluents\":")
+  sb.write_string(problem.funcs.length().to_string())
   sb.write_string(",\"initial_cost\":")
-  sb.write_string(problem.initial_cost.to_string())
+  sb.write_string(@pddl.format_number(problem.initial_cost))
   sb.write_string(",\"costs\":\"")
   sb.write_string(cost_mode(problem))
   sb.write_char('"')
@@ -189,7 +191,7 @@ fn model_json(problem : @pddl.GroundProblem, detailed : Bool) -> String {
       sb.write_string(",\"action\":\"")
       sb.write_string(json_escape(action.render()))
       sb.write_string("\",\"cost\":")
-      sb.write_string(action.cost.to_string())
+      sb.write_string(@pddl.format_number(action.cost))
       sb.write_char('}')
     }
     sb.write_char(']')
@@ -314,7 +316,7 @@ fn cmd_solve(args : Array[String]) -> Int32 {
     let result = @pddl.solve(grounded, heuristic, search, max_expanded~)
     let plan_text = result.render_plan(grounded)
     if result.is_solved() && out_path != "" {
-      let content = "; cost = \{result.cost}\n" + plan_text
+      let content = "; cost = \{@pddl.format_number(result.cost)}\n" + plan_text
       @fs.write_string_to_file(out_path, content) catch {
         @fs.IOError(message) =>
           return report_error(json, "cannot write plan: \{message}")
@@ -325,7 +327,7 @@ fn cmd_solve(args : Array[String]) -> Int32 {
     } else if result.is_solved() {
       if !quiet {
         println("; moonpddl: solved")
-        println("; cost = \{result.cost}")
+        println("; cost = \{@pddl.format_number(result.cost)}")
         println(
           "; expanded = \{result.expanded}, generated = \{result.generated}",
         )
@@ -454,15 +456,18 @@ fn model_summary(args : Array[String], detailed : Bool) -> Int32 {
       println("  problem: \{grounded.problem_name}")
       println("  objects: \{grounded.objects.length()}")
       println("  atoms: \{grounded.atoms.length()}")
+      println("  fluents: \{grounded.funcs.length()}")
       println("  actions: \{grounded.actions.length()}")
       println("  goal disjuncts: \{grounded.goal.length()}")
-      println("  initial cost: \{grounded.initial_cost}")
+      println("  initial cost: \{@pddl.format_number(grounded.initial_cost)}")
       println("  cost mode: \{cost_mode(grounded)}")
       if detailed {
         println("")
         println("ground actions:")
         for action in grounded.actions {
-          println("#\{action.id} cost=\{action.cost} \{action.render()}")
+          println(
+            "#\{action.id} cost=\{@pddl.format_number(action.cost)} \{action.render()}",
+          )
         }
       }
     }

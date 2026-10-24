@@ -3,16 +3,12 @@
 // SPDX-License-Identifier: MIT
 
 ///|
-/// Sentinel for an atom that the delete relaxation cannot reach. Costs are
-/// `Int64`, so this value is far above any supported action cost and far
-/// below `Int64::max_value()`.
-const HEURISTIC_INF : Int64 = 4_000_000_000_000_000_000L
-
-///|
 /// Heuristics supported by the planner.
 ///
 /// `HMax` is admissible for non-negative action costs; `HAdd` and `HFF` are
-/// informative but may overestimate or underestimate.
+/// informative but may overestimate or underestimate. Numeric constraints
+/// are dropped from the relaxation, which keeps every heuristic admissible
+/// with respect to the real task.
 pub(all) enum HeuristicKind {
   Blind
   GoalCount
@@ -45,12 +41,13 @@ pub fn HeuristicKind::name(self : HeuristicKind) -> String {
 }
 
 ///|
-/// One action of the delete-relaxed task. Negative literals are dropped from
-/// preconditions and effect conditions; deletions are ignored entirely.
+/// One action of the delete-relaxed task. Negative literals and numeric
+/// constraints are dropped from preconditions and effect conditions;
+/// deletions are ignored entirely.
 priv struct RelaxedAction {
   pre : Array[Int32]
   adds : Array[Int32]
-  cost : Int64
+  cost : Double
 }
 
 ///|
@@ -64,12 +61,13 @@ priv struct RelaxedTask {
 }
 
 ///|
-fn positive_atoms(alternative : Array[Literal]) -> Array[Int32] {
+fn positive_atoms(alternative : Array[CondLit]) -> Array[Int32] {
   let result : Array[Int32] = []
   for literal in alternative {
     match literal {
-      Positive(atom) => result.push(atom)
-      Negative(_) => ()
+      Pos(atom) => result.push(atom)
+      Neg(_) => ()
+      Num(_, _, _) => ()
     }
   }
   result
@@ -105,15 +103,12 @@ fn RelaxedTask::make(problem : GroundProblem) -> RelaxedTask {
 }
 
 ///|
-fn capped_add(left : Int64, right : Int64) -> Int64 {
-  if left < 0L || right < 0L {
-    return HEURISTIC_INF
-  }
-  if left >= HEURISTIC_INF || right >= HEURISTIC_INF {
+fn capped_add(left : Double, right : Double) -> Double {
+  if left < 0.0 || right < 0.0 {
     return HEURISTIC_INF
   }
   let sum = left + right
-  if sum < left || sum >= HEURISTIC_INF {
+  if sum >= HEURISTIC_INF {
     HEURISTIC_INF
   } else {
     sum
@@ -121,11 +116,11 @@ fn capped_add(left : Int64, right : Int64) -> Int64 {
 }
 
 ///|
-fn initial_costs(task : RelaxedTask, state : State) -> Array[Int64] {
+fn initial_costs(task : RelaxedTask, state : State) -> Array[Double] {
   let costs = Array::make(task.num_atoms, HEURISTIC_INF)
   for atom in 0..<task.num_atoms {
     if state.contains(atom) {
-      costs[atom] = 0L
+      costs[atom] = 0.0
     }
   }
   costs
@@ -133,13 +128,13 @@ fn initial_costs(task : RelaxedTask, state : State) -> Array[Int64] {
 
 ///|
 /// Least fixed point of the max-aggregation equations.
-fn hmax_costs(task : RelaxedTask, state : State) -> Array[Int64] {
+fn hmax_costs(task : RelaxedTask, state : State) -> Array[Double] {
   let costs = initial_costs(task, state)
   let mut changed = true
   while changed {
     changed = false
     for action in task.actions {
-      let mut worst = 0L
+      let mut worst = 0.0
       let mut reachable = true
       for atom in action.pre {
         let cost = costs[atom]
@@ -171,7 +166,7 @@ fn hmax_costs(task : RelaxedTask, state : State) -> Array[Int64] {
 fn hadd_costs(
   task : RelaxedTask,
   state : State,
-) -> (Array[Int64], Array[Int32]) {
+) -> (Array[Double], Array[Int32]) {
   let costs = initial_costs(task, state)
   let achievers : Array[Int32] = Array::make(task.num_atoms, -1)
   let mut changed = true
@@ -204,13 +199,13 @@ fn hadd_costs(
 }
 
 ///|
-fn goal_max(task : RelaxedTask, costs : Array[Int64]) -> Int64 {
+fn goal_max(task : RelaxedTask, costs : Array[Double]) -> Double {
   if task.goal.length() == 0 {
-    return -1L
+    return -1.0
   }
   let mut best = HEURISTIC_INF
   for alternative in task.goal {
-    let mut worst = 0L
+    let mut worst = 0.0
     let mut reachable = true
     for atom in alternative {
       let cost = costs[atom]
@@ -227,20 +222,20 @@ fn goal_max(task : RelaxedTask, costs : Array[Int64]) -> Int64 {
     }
   }
   if best >= HEURISTIC_INF {
-    -1L
+    -1.0
   } else {
     best
   }
 }
 
 ///|
-fn goal_sum(task : RelaxedTask, costs : Array[Int64]) -> Int64 {
+fn goal_sum(task : RelaxedTask, costs : Array[Double]) -> Double {
   if task.goal.length() == 0 {
-    return -1L
+    return -1.0
   }
   let mut best = HEURISTIC_INF
   for alternative in task.goal {
-    let mut total = 0L
+    let mut total = 0.0
     let mut reachable = true
     for atom in alternative {
       let cost = costs[atom]
@@ -255,7 +250,7 @@ fn goal_sum(task : RelaxedTask, costs : Array[Int64]) -> Int64 {
     }
   }
   if best >= HEURISTIC_INF {
-    -1L
+    -1.0
   } else {
     best
   }
@@ -271,11 +266,7 @@ fn goal_count(problem : GroundProblem, state : State) -> Int32 {
   for alternative in problem.goal {
     let mut count = 0
     for literal in alternative {
-      let satisfied = match literal {
-        Positive(atom) => state.contains(atom)
-        Negative(atom) => !state.contains(atom)
-      }
-      if !satisfied {
+      if !literal.holds(state) {
         count += 1
       }
     }
@@ -294,16 +285,16 @@ fn goal_count(problem : GroundProblem, state : State) -> Int32 {
 ///|
 /// Returns the cost of a relaxed plan extracted greedily from the `hadd`
 /// supporters, or `-1` if the relaxed goal is unreachable.
-fn hff_value(task : RelaxedTask, state : State) -> Int64 {
+fn hff_value(task : RelaxedTask, state : State) -> Double {
   let (costs, achievers) = hadd_costs(task, state)
   if task.goal.length() == 0 {
-    return -1L
+    return -1.0
   }
   let mut goal_alternative : Array[Int32] = []
   let mut goal_cost = HEURISTIC_INF
   let mut found = false
   for alternative in task.goal {
-    let mut total = 0L
+    let mut total = 0.0
     let mut reachable = true
     for atom in alternative {
       let cost = costs[atom]
@@ -320,7 +311,7 @@ fn hff_value(task : RelaxedTask, state : State) -> Int64 {
     }
   }
   if !found {
-    return -1L
+    return -1.0
   }
   let achieved : Map[Int32, Bool] = Map([])
   for atom in 0..<task.num_atoms {
@@ -343,7 +334,7 @@ fn hff_value(task : RelaxedTask, state : State) -> Int64 {
     }
     let index = achievers[atom]
     if index < 0 {
-      return -1L
+      return -1.0
     }
     selected.set(index, true)
     let action = task.actions[index]
@@ -356,14 +347,14 @@ fn hff_value(task : RelaxedTask, state : State) -> Int64 {
       }
     }
   }
-  let mut total = 0L
+  let mut total = 0.0
   for index in 0..<task.actions.length() {
     if selected.contains(index) {
       total = capped_add(total, task.actions[index].cost)
     }
   }
   if total >= HEURISTIC_INF {
-    -1L
+    -1.0
   } else {
     total
   }
@@ -375,10 +366,10 @@ fn estimate(
   task : RelaxedTask,
   problem : GroundProblem,
   state : State,
-) -> Int64 {
+) -> Double {
   match kind {
-    Blind => 0L
-    GoalCount => Int64::from_int(goal_count(problem, state))
+    Blind => 0.0
+    GoalCount => Int64::from_int(goal_count(problem, state)).to_double()
     HMax => goal_max(task, hmax_costs(task, state))
     HAdd => {
       let (costs, _) = hadd_costs(task, state)
@@ -397,6 +388,6 @@ pub fn heuristic_value(
   problem : GroundProblem,
   kind : HeuristicKind,
   state : State,
-) -> Int64 {
+) -> Double {
   estimate(kind, RelaxedTask::make(problem), problem, state)
 }

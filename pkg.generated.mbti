@@ -10,11 +10,19 @@ pub fn action_is_applicable(GroundAction, State) -> Bool
 
 pub fn apply_action(GroundAction, State) -> State
 
-pub fn condition_holds(Array[Array[Literal]], State) -> Bool
+pub fn condition_holds(Array[Array[CondLit]], State) -> Bool
+
+pub fn eval_num_value(NumValue, Array[Double]) -> Double
+
+pub fn format_number(Double) -> String
 
 pub fn ground(Domain, Problem) -> GroundProblem raise PddlError
 
-pub fn heuristic_value(GroundProblem, HeuristicKind, State) -> Int64
+pub fn heuristic_value(GroundProblem, HeuristicKind, State) -> Double
+
+pub fn num_compare(CompareOp, Double, Double) -> Bool
+
+pub fn num_value_text(GroundProblem, NumValue) -> String
 
 pub fn parse_domain(String) -> Domain raise PddlError
 
@@ -47,6 +55,28 @@ pub fn Action::equal(Self, Self) -> Bool
 pub fn Action::not_equal(Self, Self) -> Bool
 pub fn Action::to_repr(Self) -> @debug.Repr
 
+pub(all) enum CompareOp {
+  CmpLT
+  CmpLE
+  CmpEQ
+  CmpNE
+  CmpGT
+  CmpGE
+} derive(Eq, @debug.Debug)
+pub fn CompareOp::equal(Self, Self) -> Bool
+pub fn CompareOp::not_equal(Self, Self) -> Bool
+pub fn CompareOp::to_repr(Self) -> @debug.Repr
+
+pub(all) enum CondLit {
+  Pos(Int32)
+  Neg(Int32)
+  Num(CompareOp, NumValue, NumValue)
+} derive(Eq, @debug.Debug)
+pub fn CondLit::equal(Self, Self) -> Bool
+pub fn CondLit::holds(Self, State) -> Bool
+pub fn CondLit::not_equal(Self, Self) -> Bool
+pub fn CondLit::to_repr(Self) -> @debug.Repr
+
 pub(all) struct Domain {
   name : String
   requirements : Array[String]
@@ -66,7 +96,7 @@ pub(all) enum Effect {
   AndEffect(Array[Effect])
   ForallEffect(Array[TypedName], Effect)
   WhenEffect(Formula, Effect)
-  IncreaseEffect(String, Int64)
+  NumEffect(NumOp, PAtom, NumExpr)
 } derive(Eq, @debug.Debug)
 pub fn Effect::equal(Self, Self) -> Bool
 pub fn Effect::not_equal(Self, Self) -> Bool
@@ -81,6 +111,7 @@ pub(all) enum Formula {
   Exists(Array[TypedName], Formula)
   Forall(Array[TypedName], Formula)
   Equal(Term, Term)
+  Compare(CompareOp, NumExpr, NumExpr)
 } derive(Eq, @debug.Debug)
 pub fn Formula::equal(Self, Self) -> Bool
 pub fn Formula::not_equal(Self, Self) -> Bool
@@ -98,9 +129,9 @@ pub(all) struct GroundAction {
   mut id : Int32
   name : String
   args : Array[String]
-  precondition : Array[Array[Literal]]
+  precondition : Array[Array[CondLit]]
   effects : Array[GroundEffect]
-  cost : Int64
+  cost : Double
 } derive(Eq, @debug.Debug)
 pub fn GroundAction::equal(Self, Self) -> Bool
 pub fn GroundAction::not_equal(Self, Self) -> Bool
@@ -117,25 +148,57 @@ pub fn GroundAtom::render(Self) -> String
 pub fn GroundAtom::to_repr(Self) -> @debug.Repr
 
 pub(all) struct GroundEffect {
-  condition : Array[Array[Literal]]
+  condition : Array[Array[CondLit]]
   adds : Array[Int32]
   deletes : Array[Int32]
+  numeric : Array[GroundNumEffect]
 } derive(Eq, @debug.Debug)
 pub fn GroundEffect::equal(Self, Self) -> Bool
 pub fn GroundEffect::not_equal(Self, Self) -> Bool
 pub fn GroundEffect::to_repr(Self) -> @debug.Repr
+
+pub(all) struct GroundFunc {
+  predicate : String
+  args : Array[String]
+} derive(Eq, @debug.Debug)
+pub fn GroundFunc::equal(Self, Self) -> Bool
+pub fn GroundFunc::not_equal(Self, Self) -> Bool
+pub fn GroundFunc::render(Self) -> String
+pub fn GroundFunc::to_repr(Self) -> @debug.Repr
+
+pub(all) struct GroundNumEffect {
+  op : GroundNumOp
+  fluent : Int32
+  rhs : NumValue
+} derive(Eq, @debug.Debug)
+pub fn GroundNumEffect::equal(Self, Self) -> Bool
+pub fn GroundNumEffect::not_equal(Self, Self) -> Bool
+pub fn GroundNumEffect::to_repr(Self) -> @debug.Repr
+
+pub(all) enum GroundNumOp {
+  GInc
+  GDec
+  GAssign
+  GScaleUp
+  GScaleDown
+} derive(Eq, @debug.Debug)
+pub fn GroundNumOp::equal(Self, Self) -> Bool
+pub fn GroundNumOp::not_equal(Self, Self) -> Bool
+pub fn GroundNumOp::to_repr(Self) -> @debug.Repr
 
 pub(all) struct GroundProblem {
   domain_name : String
   problem_name : String
   objects : Array[TypedName]
   atoms : Array[GroundAtom]
+  funcs : Array[GroundFunc]
   actions : Array[GroundAction]
   initial : State
-  initial_cost : Int64
-  goal : Array[Array[Literal]]
+  initial_cost : Double
+  goal : Array[Array[CondLit]]
   uses_action_costs : Bool
   has_metric : Bool
+  metric_minimize : Bool
 } derive(@debug.Debug)
 pub fn GroundProblem::atom_text(Self, Int32) -> String
 pub fn GroundProblem::goal_holds(Self, State) -> Bool
@@ -156,27 +219,63 @@ pub fn HeuristicKind::to_repr(Self) -> @debug.Repr
 
 pub(all) enum InitElem {
   InitFact(PAtom)
-  InitCost(Int64)
+  InitFunc(PAtom, Double)
 } derive(Eq, @debug.Debug)
 pub fn InitElem::equal(Self, Self) -> Bool
 pub fn InitElem::not_equal(Self, Self) -> Bool
 pub fn InitElem::to_repr(Self) -> @debug.Repr
 
-pub(all) enum Literal {
-  Positive(Int32)
-  Negative(Int32)
-} derive(Eq, @debug.Debug)
-pub fn Literal::equal(Self, Self) -> Bool
-pub fn Literal::holds(Self, State) -> Bool
-pub fn Literal::not_equal(Self, Self) -> Bool
-pub fn Literal::to_repr(Self) -> @debug.Repr
-
 pub(all) enum Metric {
-  MinimizeTotalCost
+  Metric(MetricDir, NumExpr)
 } derive(Eq, @debug.Debug)
 pub fn Metric::equal(Self, Self) -> Bool
 pub fn Metric::not_equal(Self, Self) -> Bool
 pub fn Metric::to_repr(Self) -> @debug.Repr
+
+pub(all) enum MetricDir {
+  Minimize
+  Maximize
+} derive(Eq, @debug.Debug)
+pub fn MetricDir::equal(Self, Self) -> Bool
+pub fn MetricDir::not_equal(Self, Self) -> Bool
+pub fn MetricDir::to_repr(Self) -> @debug.Repr
+
+pub(all) enum NumExpr {
+  NumLit(Double)
+  NumFunc(PAtom)
+  NumNeg(NumExpr)
+  NumAdd(NumExpr, NumExpr)
+  NumSub(NumExpr, NumExpr)
+  NumMul(NumExpr, NumExpr)
+  NumDiv(NumExpr, NumExpr)
+} derive(Eq, @debug.Debug)
+pub fn NumExpr::equal(Self, Self) -> Bool
+pub fn NumExpr::not_equal(Self, Self) -> Bool
+pub fn NumExpr::to_repr(Self) -> @debug.Repr
+
+pub(all) enum NumOp {
+  OpIncrease
+  OpDecrease
+  OpAssign
+  OpScaleUp
+  OpScaleDown
+} derive(Eq, @debug.Debug)
+pub fn NumOp::equal(Self, Self) -> Bool
+pub fn NumOp::not_equal(Self, Self) -> Bool
+pub fn NumOp::to_repr(Self) -> @debug.Repr
+
+pub(all) enum NumValue {
+  NConst(Double)
+  NFluent(Int32)
+  NNeg(NumValue)
+  NAdd(NumValue, NumValue)
+  NSub(NumValue, NumValue)
+  NMul(NumValue, NumValue)
+  NDiv(NumValue, NumValue)
+} derive(Eq, @debug.Debug)
+pub fn NumValue::equal(Self, Self) -> Bool
+pub fn NumValue::not_equal(Self, Self) -> Bool
+pub fn NumValue::to_repr(Self) -> @debug.Repr
 
 pub(all) struct PAtom {
   name : String
@@ -238,7 +337,7 @@ pub fn SearchAlgorithm::to_repr(Self) -> @debug.Repr
 pub(all) struct SearchResult {
   status : SearchStatus
   plan : Array[Int32]
-  cost : Int64
+  cost : Double
   expanded : Int32
   generated : Int32
 } derive(@debug.Debug)
@@ -257,14 +356,17 @@ pub fn SearchStatus::to_repr(Self) -> @debug.Repr
 
 pub(all) struct State {
   words : Array[Int32]
+  fluents : Array[Double]
 } derive(@debug.Debug)
 pub fn State::add(Self, Int32) -> Unit
 pub fn State::contains(Self, Int32) -> Bool
 pub fn State::copy(Self) -> Self
-pub fn State::empty(Int32) -> Self
+pub fn State::empty(Int32, Int32) -> Self
+pub fn State::fluent(Self, Int32) -> Double
 pub fn State::key(Self) -> String
 pub fn State::num_true(Self) -> Int32
 pub fn State::remove(Self, Int32) -> Unit
+pub fn State::set_fluent(Self, Int32, Double) -> Unit
 pub fn State::to_repr(Self) -> @debug.Repr
 
 pub(all) enum Term {
@@ -277,7 +379,7 @@ pub fn Term::to_repr(Self) -> @debug.Repr
 
 pub(all) struct TypeDecl {
   name : String
-  parent : String
+  parents : Array[String]
 } derive(Eq, @debug.Debug)
 pub fn TypeDecl::equal(Self, Self) -> Bool
 pub fn TypeDecl::not_equal(Self, Self) -> Bool
@@ -285,7 +387,7 @@ pub fn TypeDecl::to_repr(Self) -> @debug.Repr
 
 pub(all) struct TypedName {
   name : String
-  type_name : String
+  types : Array[String]
 } derive(Eq, @debug.Debug)
 pub fn TypedName::equal(Self, Self) -> Bool
 pub fn TypedName::not_equal(Self, Self) -> Bool
@@ -315,8 +417,8 @@ pub(all) struct ValidationReport {
   valid : Bool
   steps : Int32
   executed : Int32
-  cost : Int64
-  declared_cost : Int64?
+  cost : Double
+  declared_cost : Double?
   issues : Array[ValidationIssue]
 } derive(@debug.Debug)
 pub fn ValidationReport::message(Self) -> String

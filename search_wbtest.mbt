@@ -23,11 +23,11 @@ test "heuristics on blocksworld" {
     parse_domain(blocksworld_domain),
     parse_problem(blocksworld_problem),
   )
-  @test.assert_eq(heuristic_value(problem, Blind, problem.initial), 0)
-  @test.assert_eq(heuristic_value(problem, GoalCount, problem.initial), 2)
-  @test.assert_eq(heuristic_value(problem, HMax, problem.initial), 2)
-  @test.assert_eq(heuristic_value(problem, HAdd, problem.initial), 4)
-  @test.assert_eq(heuristic_value(problem, HFF, problem.initial), 4)
+  @test.assert_eq(heuristic_value(problem, Blind, problem.initial), 0.0)
+  @test.assert_eq(heuristic_value(problem, GoalCount, problem.initial), 2.0)
+  @test.assert_eq(heuristic_value(problem, HMax, problem.initial), 2.0)
+  @test.assert_eq(heuristic_value(problem, HAdd, problem.initial), 4.0)
+  @test.assert_eq(heuristic_value(problem, HFF, problem.initial), 4.0)
   let pick_b = find_ground_action(problem, "pick-up", ["b"])
   let stack_bc = find_ground_action(problem, "stack", ["b", "c"])
   let pick_a = find_ground_action(problem, "pick-up", ["a"])
@@ -39,7 +39,7 @@ test "heuristics on blocksworld" {
   @test.assert_eq(problem.goal_holds(state), true)
   let kinds : Array[HeuristicKind] = [Blind, GoalCount, HMax, HAdd, HFF]
   for kind in kinds {
-    @test.assert_eq(heuristic_value(problem, kind, state), 0)
+    @test.assert_eq(heuristic_value(problem, kind, state), 0.0)
   }
 }
 
@@ -53,7 +53,7 @@ test "a-star with hmax is optimal on blocksworld" {
   let informed = solve(problem, HMax, AStar)
   @test.assert_eq(blind.status, Solved)
   @test.assert_eq(informed.status, Solved)
-  @test.assert_eq(blind.cost, 4)
+  @test.assert_eq(blind.cost, 4.0)
   @test.assert_eq(informed.cost, blind.cost)
   @test.assert_eq(informed.plan.length(), 4)
   @test.assert_eq(informed.is_solved(), true)
@@ -72,7 +72,7 @@ test "greedy best first finds a valid blocksworld plan" {
   let result = solve(problem, HFF, GBFS)
   @test.assert_eq(result.status, Solved)
   @test.assert_eq(result.expanded > 0, true)
-  @test.assert_eq(result.cost > 0, true)
+  @test.assert_eq(result.cost > 0.0, true)
   assert_plan_valid(problem, result.plan)
 }
 
@@ -84,12 +84,12 @@ test "weighted a-star solves a cost domain" {
   )
   let optimal = solve(problem, HMax, AStar)
   @test.assert_eq(optimal.status, Solved)
-  @test.assert_eq(optimal.cost, 2)
+  @test.assert_eq(optimal.cost, 2.0)
   @test.assert_eq(optimal.plan.length(), 3)
   assert_plan_valid(problem, optimal.plan)
   let weighted = solve(problem, HFF, WeightedAStar(3))
   @test.assert_eq(weighted.status, Solved)
-  @test.assert_eq(weighted.cost, 2)
+  @test.assert_eq(weighted.cost, 2.0)
   assert_plan_valid(problem, weighted.plan)
 }
 
@@ -116,7 +116,7 @@ test "search includes the initial total cost" {
   )
   let result = solve(problem, HMax, AStar)
   @test.assert_eq(result.status, Solved)
-  @test.assert_eq(result.cost, 10)
+  @test.assert_eq(result.cost, 10.0)
   @test.assert_eq(result.plan.length(), 1)
   assert_plan_valid(problem, result.plan)
 }
@@ -145,10 +145,10 @@ test "action costs beyond 32 bits stay exact" {
     parse_domain(domain_source),
     parse_problem(problem_source),
   )
-  @test.assert_eq(problem.actions[0].cost, 3_000_000_000L)
+  @test.assert_eq(problem.actions[0].cost, 3000000000.0)
   let result = solve(problem, HMax, AStar)
   @test.assert_eq(result.status, Solved)
-  @test.assert_eq(result.cost, 3_000_000_000L)
+  @test.assert_eq(result.cost, 3000000000.0)
 }
 
 ///|
@@ -174,7 +174,7 @@ test "sentinel-sized action costs remain reachable" {
   )
   let result = solve(problem, HFF, AStar)
   @test.assert_eq(result.status, Solved)
-  @test.assert_eq(result.cost, 2_000_000_009L)
+  @test.assert_eq(result.cost, 2000000009.0)
   @test.assert_eq(result.plan.length(), 1)
 }
 
@@ -205,7 +205,7 @@ test "cumulative plan cost is not capped" {
   )
   let result = solve(problem, HFF, AStar)
   @test.assert_eq(result.status, Solved)
-  @test.assert_eq(result.cost, 1_200_000_000L)
+  @test.assert_eq(result.cost, 1200000000.0)
   @test.assert_eq(result.plan.length(), 2)
 }
 
@@ -240,11 +240,58 @@ test "greedy best first orders by h, not by g plus h" {
   )
   let greedy = solve(problem, HFF, GBFS)
   @test.assert_eq(greedy.status, Solved)
-  @test.assert_eq(greedy.cost, 100)
+  @test.assert_eq(greedy.cost, 100.0)
   @test.assert_eq(greedy.plan.length(), 1)
   let optimal = solve(problem, HFF, AStar)
   @test.assert_eq(optimal.status, Solved)
-  @test.assert_eq(optimal.cost, 11)
+  @test.assert_eq(optimal.cost, 11.0)
+}
+
+///|
+test "numeric action costs from static functions search optimally" {
+  let problem = try! ground(
+    parse_domain(delivery_domain),
+    parse_problem(delivery_problem),
+  )
+  // Optimum: refuel (2 * 10) + drive a->b (2 * 4) + drive b->c (2 * 3) = 34.
+  let optimal = solve(problem, HMax, AStar)
+  @test.assert_eq(optimal.status, Solved)
+  @test.assert_eq(optimal.cost, 34.0)
+  @test.assert_eq(optimal.plan.length(), 3)
+  assert_plan_valid(problem, optimal.plan)
+  let greedy = solve(problem, HFF, GBFS)
+  @test.assert_eq(greedy.status, Solved)
+  assert_plan_valid(problem, greedy.plan)
+}
+
+///|
+test "numeric preconditions gate applicability during search" {
+  let domain_source =
+    #|(define (domain gated)
+    #|  (:requirements :fluents)
+    #|  (:predicates (done))
+    #|  (:functions (charge) - number)
+    #|  (:action fire
+    #|    :parameters ()
+    #|    :precondition (>= (charge) 10)
+    #|    :effect (done))
+    #|  (:action charge-up
+    #|    :parameters ()
+    #|    :precondition ()
+    #|    :effect (increase (charge) 5)))
+  let problem_source =
+    #|(define (problem gated-1)
+    #|  (:domain gated)
+    #|  (:init (= (charge) 0))
+    #|  (:goal (done)))
+  let problem = try! ground(
+    parse_domain(domain_source),
+    parse_problem(problem_source),
+  )
+  let result = solve(problem, HMax, AStar)
+  @test.assert_eq(result.status, Solved)
+  @test.assert_eq(result.plan.length(), 3)
+  assert_plan_valid(problem, result.plan)
 }
 
 ///|
@@ -262,7 +309,7 @@ test "goal that already holds yields an empty plan" {
   let result = solve(problem, HMax, AStar)
   @test.assert_eq(result.status, Solved)
   @test.assert_eq(result.plan.length(), 0)
-  @test.assert_eq(result.cost, 0)
+  @test.assert_eq(result.cost, 0.0)
   @test.assert_eq(result.expanded, 0)
 }
 
@@ -285,10 +332,10 @@ test "unreachable goal is detected by the relaxation" {
     parse_domain(domain_source),
     parse_problem(problem_source),
   )
-  @test.assert_eq(heuristic_value(problem, HMax, problem.initial), -1)
-  @test.assert_eq(heuristic_value(problem, HAdd, problem.initial), -1)
-  @test.assert_eq(heuristic_value(problem, HFF, problem.initial), -1)
-  @test.assert_eq(heuristic_value(problem, GoalCount, problem.initial), 1)
+  @test.assert_eq(heuristic_value(problem, HMax, problem.initial), -1.0)
+  @test.assert_eq(heuristic_value(problem, HAdd, problem.initial), -1.0)
+  @test.assert_eq(heuristic_value(problem, HFF, problem.initial), -1.0)
+  @test.assert_eq(heuristic_value(problem, GoalCount, problem.initial), 1.0)
   let informed = solve(problem, HMax, GBFS)
   @test.assert_eq(informed.status, Exhausted)
   @test.assert_eq(informed.generated, 1)

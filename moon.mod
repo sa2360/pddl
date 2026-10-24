@@ -1,6 +1,6 @@
 name = "sa2360/pddl"
 
-version = "0.1.1"
+version = "0.2.0"
 
 readme = "README.md"
 
@@ -12,7 +12,7 @@ keywords = [ "pddl", "planning", "ai", "planner", "validator" ]
 
 preferred_target = "wasm"
 
-description = "A PDDL 2.1 planning engine and independent plan validator for MoonBit."
+description = "A PDDL 2.1 Level 1 (classical + numeric fluents) planning engine and independent plan validator for MoonBit."
 
 import {
   "moonbitlang/x@0.5.5",

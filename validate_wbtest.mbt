@@ -18,8 +18,8 @@ test "validate a correct blocksworld plan" {
   @test.assert_eq(report.valid, true)
   @test.assert_eq(report.steps, 4)
   @test.assert_eq(report.executed, 4)
-  @test.assert_eq(report.cost, 4)
-  @test.assert_eq(report.declared_cost, Some(4))
+  @test.assert_eq(report.cost, 4.0)
+  @test.assert_eq(report.declared_cost, Some(4.0))
   @test.assert_eq(report.issues.length(), 0)
   @test.assert_eq(report.message().contains("plan valid"), true)
   let json = report.to_json()
@@ -42,7 +42,7 @@ test "validate plan steps without parentheses and in upper case" {
     #|STACK A B
   let report = validate_plan(problem, source)
   @test.assert_eq(report.valid, true)
-  @test.assert_eq(report.cost, 4)
+  @test.assert_eq(report.cost, 4.0)
 }
 
 ///|
@@ -58,7 +58,7 @@ test "validate reports an inapplicable step" {
   @test.assert_eq(report.valid, false)
   @test.assert_eq(report.steps, 2)
   @test.assert_eq(report.executed, 1)
-  @test.assert_eq(report.cost, 1)
+  @test.assert_eq(report.cost, 1.0)
   @test.assert_eq(report.issues.length(), 1)
   @test.assert_eq(report.issues[0].kind, Inapplicable)
   @test.assert_eq(report.issues[0].line, 2)
@@ -152,8 +152,8 @@ test "validate flags a mismatched cost comment" {
     #|; cost = 99
   let report = validate_plan(problem, source)
   @test.assert_eq(report.valid, false)
-  @test.assert_eq(report.cost, 4)
-  @test.assert_eq(report.declared_cost, Some(99))
+  @test.assert_eq(report.cost, 4.0)
+  @test.assert_eq(report.declared_cost, Some(99.0))
   @test.assert_eq(report.issues.length(), 1)
   @test.assert_eq(report.issues[0].kind, CostMismatch)
   @test.assert_eq(report.message(), "plan invalid")
@@ -193,8 +193,119 @@ test "validate a plan for an action cost domain" {
   @test.assert_eq(report.valid, true)
   @test.assert_eq(report.steps, 3)
   @test.assert_eq(report.executed, 3)
-  @test.assert_eq(report.cost, 2)
+  @test.assert_eq(report.cost, 2.0)
   @test.assert_eq(report.issues.length(), 0)
+}
+
+///|
+test "validate a numeric plan with static function cost inputs" {
+  let problem = try! ground(
+    parse_domain(delivery_domain),
+    parse_problem(delivery_problem),
+  )
+  let source =
+    #|(refuel t1 a)
+    #|(drive t1 a b)
+    #|(drive t1 b c)
+    #|; cost = 34
+  let report = validate_plan(problem, source)
+  @test.assert_eq(report.valid, true)
+  @test.assert_eq(report.steps, 3)
+  @test.assert_eq(report.executed, 3)
+  @test.assert_eq(report.cost, 34.0)
+  @test.assert_eq(report.declared_cost, Some(34.0))
+  @test.assert_eq(report.issues.length(), 0)
+}
+
+///|
+test "validate reports an unmet numeric goal" {
+  let domain_source =
+    #|(define (domain d)
+    #|  (:requirements :fluents)
+    #|  (:predicates (done))
+    #|  (:functions (level) - number)
+    #|  (:action raise
+    #|    :parameters ()
+    #|    :precondition ()
+    #|    :effect (and (done) (increase (level) 3))))
+  let problem_source =
+    #|(define (problem p)
+    #|  (:domain d)
+    #|  (:init (= (level) 0))
+    #|  (:goal (and (done) (>= (level) 10))))
+  let problem = try! ground(
+    parse_domain(domain_source),
+    parse_problem(problem_source),
+  )
+  let source =
+    #|(raise)
+    #|; cost = 1
+  let report = validate_plan(problem, source)
+  @test.assert_eq(report.valid, false)
+  @test.assert_eq(report.issues[0].kind, GoalNotReached)
+  @test.assert_eq(report.issues[0].message.contains("(>= (level) 10)"), true)
+}
+
+///|
+test "validate accepts fractional declared costs" {
+  let domain_source =
+    #|(define (domain d)
+    #|  (:requirements :action-costs)
+    #|  (:predicates (done))
+    #|  (:functions (total-cost) - number)
+    #|  (:action go
+    #|    :parameters ()
+    #|    :precondition ()
+    #|    :effect (and (done) (increase (total-cost) 0.5))))
+  let problem_source =
+    #|(define (problem p)
+    #|  (:domain d)
+    #|  (:init (= (total-cost) 0))
+    #|  (:goal (done))
+    #|  (:metric minimize (total-cost)))
+  let problem = try! ground(
+    parse_domain(domain_source),
+    parse_problem(problem_source),
+  )
+  @test.assert_eq(problem.actions[0].cost, 0.5)
+  let source =
+    #|(go)
+    #|; cost = 0.5
+  let report = validate_plan(problem, source)
+  @test.assert_eq(report.valid, true)
+  @test.assert_eq(report.cost, 0.5)
+  @test.assert_eq(report.declared_cost, Some(0.5))
+  let json = report.to_json()
+  @test.assert_eq(json.contains("\"cost\":0.5"), true)
+}
+
+///|
+test "validate flags a fractional cost mismatch" {
+  let domain_source =
+    #|(define (domain d)
+    #|  (:requirements :action-costs)
+    #|  (:predicates (done))
+    #|  (:functions (total-cost) - number)
+    #|  (:action go
+    #|    :parameters ()
+    #|    :precondition ()
+    #|    :effect (and (done) (increase (total-cost) 0.5))))
+  let problem_source =
+    #|(define (problem p)
+    #|  (:domain d)
+    #|  (:init (= (total-cost) 0))
+    #|  (:goal (done))
+    #|  (:metric minimize (total-cost)))
+  let problem = try! ground(
+    parse_domain(domain_source),
+    parse_problem(problem_source),
+  )
+  let source =
+    #|(go)
+    #|; cost = 1
+  let report = validate_plan(problem, source)
+  @test.assert_eq(report.valid, false)
+  @test.assert_eq(report.issues[0].kind, CostMismatch)
 }
 
 ///|
@@ -210,5 +321,5 @@ test "validate convenience API parses and grounds the model" {
     source,
   )
   @test.assert_eq(report.valid, true)
-  @test.assert_eq(report.cost, 4)
+  @test.assert_eq(report.cost, 4.0)
 }

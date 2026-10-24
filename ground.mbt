@@ -17,10 +17,70 @@ const MAX_DNF_ALTERNATIVES : Int32 = 8192
 const MAX_GROUND_ACTIONS : Int32 = 200_000
 
 ///|
-/// A signed ground literal.
-pub(all) enum Literal {
-  Positive(Int32)
-  Negative(Int32)
+/// Largest value accepted for a single action cost or the initial
+/// total-cost. Sums stay exact well below the 2^53 integer limit of
+/// `Double`.
+const MAX_COST_VALUE : Double = 1_000_000_000_000.0
+
+///|
+/// Sentinel for an atom the delete relaxation cannot reach and for a
+/// saturated cost sum. Any sum at or beyond this value is treated as
+/// unreachable, which keeps every intermediate sum exactly representable.
+const HEURISTIC_INF : Double = 1_000_000_000_000_000.0
+
+///|
+/// Tolerance used when comparing numeric fluent values. PDDL numbers are
+/// exact in the common integer case; the tolerance only absorbs rounding
+/// noise from chained fractional arithmetic.
+const NUM_EPSILON : Double = 0.000000001
+
+///|
+/// A signed ground literal or a numeric constraint.
+pub(all) enum CondLit {
+  Pos(Int32)
+  Neg(Int32)
+  Num(CompareOp, NumValue, NumValue)
+} derive(Eq, Debug)
+
+///|
+/// A compiled numeric expression over ground fluents.
+pub(all) enum NumValue {
+  NConst(Double)
+  NFluent(Int32)
+  NNeg(NumValue)
+  NAdd(NumValue, NumValue)
+  NSub(NumValue, NumValue)
+  NMul(NumValue, NumValue)
+  NDiv(NumValue, NumValue)
+} derive(Eq, Debug)
+
+///|
+/// Numeric effect operator after grounding.
+pub(all) enum GroundNumOp {
+  GInc
+  GDec
+  GAssign
+  GScaleUp
+  GScaleDown
+} derive(Eq, Debug)
+
+///|
+/// One ground numeric effect. `rhs` is evaluated in the state before the
+/// action is applied.
+pub(all) struct GroundNumEffect {
+  op : GroundNumOp
+  fluent : Int32
+  rhs : NumValue
+} derive(Eq, Debug)
+
+///|
+/// One conditional effect after grounding and quantifier expansion.
+/// `condition` is a DNF; `[[]]` means unconditional.
+pub(all) struct GroundEffect {
+  condition : Array[Array[CondLit]]
+  adds : Array[Int32]
+  deletes : Array[Int32]
+  numeric : Array[GroundNumEffect]
 } derive(Eq, Debug)
 
 ///|
@@ -31,29 +91,31 @@ pub(all) struct GroundAtom {
 } derive(Eq, Debug)
 
 ///|
-/// One conditional effect after grounding and quantifier expansion.
-/// `condition` is a DNF; `[[]]` means unconditional.
-pub(all) struct GroundEffect {
-  condition : Array[Array[Literal]]
-  adds : Array[Int32]
-  deletes : Array[Int32]
+/// A ground function application. Fluent ids index the `fluents` array of
+/// every `State` built from the owning `GroundProblem`.
+pub(all) struct GroundFunc {
+  predicate : String
+  args : Array[String]
 } derive(Eq, Debug)
 
 ///|
-/// A fully ground action.
+/// A fully ground action. `cost` is the static action cost: the sum of the
+/// unconditional `increase (total-cost ...)` contributions evaluated over
+/// the initial fluent values.
 pub(all) struct GroundAction {
   mut id : Int32
   name : String
   args : Array[String]
-  precondition : Array[Array[Literal]]
+  precondition : Array[Array[CondLit]]
   effects : Array[GroundEffect]
-  cost : Int64
+  cost : Double
 } derive(Eq, Debug)
 
 ///|
-/// A bitset over atom ids.
+/// A bitset over atom ids plus the values of all numeric fluents.
 pub(all) struct State {
   words : Array[Int32]
+  fluents : Array[Double]
 } derive(Debug)
 
 ///|
@@ -63,18 +125,21 @@ pub(all) struct GroundProblem {
   problem_name : String
   objects : Array[TypedName]
   atoms : Array[GroundAtom]
+  funcs : Array[GroundFunc]
   actions : Array[GroundAction]
   initial : State
-  initial_cost : Int64
-  goal : Array[Array[Literal]]
+  initial_cost : Double
+  goal : Array[Array[CondLit]]
   uses_action_costs : Bool
   has_metric : Bool
+  metric_minimize : Bool
 } derive(Debug)
 
 ///|
-pub fn State::empty(num_atoms : Int32) -> State {
+pub fn State::empty(num_atoms : Int32, num_fluents : Int32) -> State {
   let words = Array::make((num_atoms + BITS_PER_WORD - 1) / BITS_PER_WORD, 0)
-  { words, }
+  let fluents = Array::make(num_fluents, 0.0)
+  { words, fluents, }
 }
 
 ///|
@@ -106,8 +171,24 @@ pub fn State::remove(self : State, atom : Int32) -> Unit {
 }
 
 ///|
+pub fn State::fluent(self : State, id : Int32) -> Double {
+  if id >= 0 && id < self.fluents.length() {
+    self.fluents[id]
+  } else {
+    0.0
+  }
+}
+
+///|
+pub fn State::set_fluent(self : State, id : Int32, value : Double) -> Unit {
+  if id >= 0 && id < self.fluents.length() {
+    self.fluents[id] = value
+  }
+}
+
+///|
 pub fn State::copy(self : State) -> State {
-  { words: self.words.copy(), }
+  { words: self.words.copy(), fluents: self.fluents.copy(), }
 }
 
 ///|
@@ -125,26 +206,119 @@ pub fn State::num_true(self : State) -> Int32 {
 }
 
 ///|
-/// A canonical key for closed-set duplicate detection.
+/// Canonical rendering of a numeric value for state keys and reports.
+/// Values that are within `NUM_EPSILON` of an integer collapse to that
+/// integer so chained arithmetic does not fragment duplicate detection.
+/// Non-finite values (which well-formed models never produce) pass through
+/// untouched.
+pub fn format_number(value : Double) -> String {
+  if value != value || value >= 1.0e18 || value <= -1.0e18 {
+    return value.to_string()
+  }
+  let truncated = value.to_int64().to_double()
+  let diff = value - truncated
+  if diff.abs() < NUM_EPSILON {
+    return truncated.to_int64().to_string()
+  }
+  if diff > 0.0 && (1.0 - diff).abs() < NUM_EPSILON {
+    return (truncated.to_int64() + 1L).to_string()
+  }
+  if diff < 0.0 && (diff + 1.0).abs() < NUM_EPSILON {
+    return (truncated.to_int64() - 1L).to_string()
+  }
+  value.to_string()
+}
+
+///|
+/// A canonical key for closed-set duplicate detection. Fluent values are
+/// part of the key: two states with the same atoms but different fluents
+/// are different states.
 pub fn State::key(self : State) -> String {
   let sb = StringBuilder::StringBuilder()
   for word in self.words {
     sb.write_string(word.to_string(radix=36))
     sb.write_char(',')
   }
+  sb.write_char('|')
+  for value in self.fluents {
+    sb.write_string(format_number(value))
+    sb.write_char(',')
+  }
   sb.to_string()
 }
 
 ///|
-pub fn Literal::holds(self : Literal, state : State) -> Bool {
-  match self {
-    Positive(atom) => state.contains(atom)
-    Negative(atom) => !state.contains(atom)
+/// Evaluates a compiled numeric expression against a state's fluent values.
+/// Division by zero yields `0.0`; models that can trigger it should guard
+/// the corresponding condition instead.
+pub fn eval_num_value(value : NumValue, fluents : Array[Double]) -> Double {
+  match value {
+    NConst(c) => c
+    NFluent(id) =>
+      if id >= 0 && id < fluents.length() {
+        fluents[id]
+      } else {
+        0.0
+      }
+    NNeg(inner) => -eval_num_value(inner, fluents)
+    NAdd(l, r) => eval_num_value(l, fluents) + eval_num_value(r, fluents)
+    NSub(l, r) => eval_num_value(l, fluents) - eval_num_value(r, fluents)
+    NMul(l, r) => eval_num_value(l, fluents) * eval_num_value(r, fluents)
+    NDiv(l, r) => {
+      let divisor = eval_num_value(r, fluents)
+      if divisor == 0.0 {
+        0.0
+      } else {
+        eval_num_value(l, fluents) / divisor
+      }
+    }
   }
 }
 
 ///|
-fn alternative_holds(alternative : Array[Literal], state : State) -> Bool {
+/// Compares two numeric values with the epsilon tolerance. The six
+/// operators stay mutually consistent: `=` and `!=` are complementary, and
+/// `<=`/`>=` agree with `<`/`>` at the boundary.
+pub fn num_compare(op : CompareOp, left : Double, right : Double) -> Bool {
+  let diff = left - right
+  match op {
+    CmpLT => diff < -NUM_EPSILON
+    CmpLE => diff <= NUM_EPSILON
+    CmpEQ => diff.abs() <= NUM_EPSILON
+    CmpNE => diff.abs() > NUM_EPSILON
+    CmpGT => diff > NUM_EPSILON
+    CmpGE => diff >= -NUM_EPSILON
+  }
+}
+
+///|
+fn compare_op_flip(op : CompareOp) -> CompareOp {
+  match op {
+    CmpLT => CmpGE
+    CmpLE => CmpGT
+    CmpEQ => CmpNE
+    CmpNE => CmpEQ
+    CmpGT => CmpLE
+    CmpGE => CmpLT
+  }
+}
+
+///|
+pub fn CondLit::holds(self : CondLit, state : State) -> Bool {
+  match self {
+    Pos(atom) => state.contains(atom)
+    Neg(atom) => !state.contains(atom)
+    Num(op, l, r) =>
+      num_compare(
+        op,
+        eval_num_value(l, state.fluents),
+        eval_num_value(r, state.fluents),
+      )
+  }
+}
+
+///|
+fn alternative_holds(alternative : Array[CondLit], state : State) -> Bool {
   for literal in alternative {
     if !literal.holds(state) {
       return false
@@ -157,7 +331,7 @@ fn alternative_holds(alternative : Array[Literal], state : State) -> Bool {
 /// Evaluates a DNF condition against a state. `[[]]` is true and `[]` is
 /// false.
 pub fn condition_holds(
-  condition : Array[Array[Literal]],
+  condition : Array[Array[CondLit]],
   state : State,
 ) -> Bool {
   for alternative in condition {
@@ -171,6 +345,20 @@ pub fn condition_holds(
 ///|
 /// Renders a ground atom as `(predicate arg1 arg2)`.
 pub fn GroundAtom::render(self : GroundAtom) -> String {
+  let sb = StringBuilder::StringBuilder()
+  sb.write_char('(')
+  sb.write_string(self.predicate)
+  for arg in self.args {
+    sb.write_char(' ')
+    sb.write_string(arg)
+  }
+  sb.write_char(')')
+  sb.to_string()
+}
+
+///|
+/// Renders a ground fluent as `(function arg1 arg2)`.
+pub fn GroundFunc::render(self : GroundFunc) -> String {
   let sb = StringBuilder::StringBuilder()
   sb.write_char('(')
   sb.write_string(self.predicate)
@@ -197,6 +385,29 @@ pub fn GroundAction::render(self : GroundAction) -> String {
 }
 
 ///|
+/// Renders a compiled numeric expression for diagnostics.
+pub fn num_value_text(problem : GroundProblem, value : NumValue) -> String {
+  match value {
+    NConst(c) => format_number(c)
+    NFluent(id) =>
+      if id >= 0 && id < problem.funcs.length() {
+        problem.funcs[id].render()
+      } else {
+        "<fluent #\{id}>"
+      }
+    NNeg(inner) => "(- \{num_value_text(problem, inner)})"
+    NAdd(l, r) =>
+      "(+ \{num_value_text(problem, l)} \{num_value_text(problem, r)})"
+    NSub(l, r) =>
+      "(- \{num_value_text(problem, l)} \{num_value_text(problem, r)})"
+    NMul(l, r) =>
+      "(* \{num_value_text(problem, l)} \{num_value_text(problem, r)})"
+    NDiv(l, r) =>
+      "(/ \{num_value_text(problem, l)} \{num_value_text(problem, r)})"
+  }
+}
+
+///|
 pub fn GroundProblem::goal_holds(self : GroundProblem, state : State) -> Bool {
   condition_holds(self.goal, state)
 }
@@ -212,17 +423,68 @@ pub fn GroundProblem::atom_text(self : GroundProblem, atom : Int32) -> String {
 }
 
 ///|
+fn cond_lit_text(problem : GroundProblem, literal : CondLit) -> String {
+  match literal {
+    Pos(atom) => problem.atom_text(atom)
+    Neg(atom) => "(not \{problem.atom_text(atom)})"
+    Num(op, l, r) => {
+      let symbol = match op {
+        CmpLT => "<"
+        CmpLE => "<="
+        CmpEQ => "="
+        CmpNE => "!="
+        CmpGT => ">"
+        CmpGE => ">="
+      }
+      "(\{symbol} \{num_value_text(problem, l)} \{num_value_text(problem, r)})"
+    }
+  }
+}
+
+///|
 pub fn action_is_applicable(action : GroundAction, state : State) -> Bool {
   condition_holds(action.precondition, state)
 }
 
 ///|
-/// Applies an action. Conditions are evaluated in the input state, then all
-/// deletions and additions are applied simultaneously with adds winning.
+/// Numeric contributions collected for one fluent while applying an action.
+priv struct FluentUpdate {
+  fluent : Int32
+  mut delta : Double
+  mut scale_up : Double
+  mut scale_down : Double
+  mut assigned : Bool
+  mut assign_value : Double
+}
+
+///|
+fn FluentUpdate::make(fluent : Int32) -> FluentUpdate {
+  {
+    fluent,
+    delta: 0.0,
+    scale_up: 1.0,
+    scale_down: 1.0,
+    assigned: false,
+    assign_value: 0.0,
+  }
+}
+
+///|
+/// Applies an action. Conditions and numeric right-hand sides are evaluated
+/// in the input state; then all deletions, additions and numeric updates are
+/// applied simultaneously:
+///
+/// - `increase`/`decrease` sum additively;
+/// - `scale-up`/`scale-down` multiply/divide the summed value (division by
+///   zero leaves the fluent unchanged);
+/// - `assign` overrides everything else; with several assignments the last
+///   one wins.
 pub fn apply_action(action : GroundAction, state : State) -> State {
   let next = state.copy()
   let deletes : Array[Int32] = []
   let adds : Array[Int32] = []
+  let updates : Array[FluentUpdate] = []
+  let update_index : Map[Int32, Int32] = Map([])
   for effect in action.effects {
     if condition_holds(effect.condition, state) {
       for atom in effect.deletes {
@@ -231,6 +493,31 @@ pub fn apply_action(action : GroundAction, state : State) -> State {
       for atom in effect.adds {
         adds.push(atom)
       }
+      for numeric in effect.numeric {
+        let rhs = eval_num_value(numeric.rhs, state.fluents)
+        let update = match update_index.get(numeric.fluent) {
+          Some(index) => updates[index]
+          None => {
+            let created = FluentUpdate::make(numeric.fluent)
+            update_index.set(numeric.fluent, updates.length())
+            updates.push(created)
+            created
+          }
+        }
+        match numeric.op {
+          GInc => update.delta = update.delta + rhs
+          GDec => update.delta = update.delta - rhs
+          GScaleUp => update.scale_up = update.scale_up * rhs
+          GScaleDown =>
+            if rhs != 0.0 {
+              update.scale_down = update.scale_down * rhs
+            }
+          GAssign => {
+            update.assigned = true
+            update.assign_value = rhs
+          }
+        }
+      }
     }
   }
   for atom in deletes {
@@ -238,6 +525,15 @@ pub fn apply_action(action : GroundAction, state : State) -> State {
   }
   for atom in adds {
     next.add(atom)
+  }
+  for update in updates {
+    if update.assigned {
+      next.set_fluent(update.fluent, update.assign_value)
+    } else {
+      let base = state.fluent(update.fluent) + update.delta
+      let scaled = base * update.scale_up / update.scale_down
+      next.set_fluent(update.fluent, scaled)
+    }
   }
   next
 }
@@ -286,11 +582,46 @@ fn AtomTable::intern(
 }
 
 ///|
+priv struct FuncTable {
+  funcs : Array[GroundFunc]
+  index : Map[String, Int32]
+  /// Initial value of every interned fluent; zero when never assigned.
+  values : Array[Double]
+  assigned : Map[Int32, Bool]
+}
+
+///|
+fn FuncTable::make() -> FuncTable {
+  let index : Map[String, Int32] = Map([])
+  let assigned : Map[Int32, Bool] = Map([])
+  { funcs: [], index, values: [], assigned, }
+}
+
+///|
+fn FuncTable::intern(
+  self : FuncTable,
+  predicate : String,
+  args : Array[String],
+) -> Int32 {
+  let key = atom_key(predicate, args)
+  match self.index.get(key) {
+    Some(id) => id
+    None => {
+      let id = self.funcs.length()
+      self.funcs.push({ predicate, args: args.copy(), })
+      self.values.push(0.0)
+      self.index.set(key, id)
+      id
+    }
+  }
+}
+
+///|
 fn dnf_product(
-  left : Array[Array[Literal]],
-  right : Array[Array[Literal]],
+  left : Array[Array[CondLit]],
+  right : Array[Array[CondLit]],
   context : String,
-) -> Array[Array[Literal]] raise PddlError {
+) -> Array[Array[CondLit]] raise PddlError {
   if left.length() == 0 || right.length() == 0 {
     return []
   }
@@ -299,7 +630,7 @@ fn dnf_product(
       "formula expansion in \{context} exceeds \{MAX_DNF_ALTERNATIVES} disjuncts",
     )
   }
-  let result : Array[Array[Literal]] = []
+  let result : Array[Array[CondLit]] = []
   for a in left {
     for b in right {
       let merged = a.copy()
@@ -312,10 +643,10 @@ fn dnf_product(
 
 ///|
 fn dnf_union(
-  left : Array[Array[Literal]],
-  right : Array[Array[Literal]],
+  left : Array[Array[CondLit]],
+  right : Array[Array[CondLit]],
   context : String,
-) -> Array[Array[Literal]] raise PddlError {
+) -> Array[Array[CondLit]] raise PddlError {
   if left.length() + right.length() > MAX_DNF_ALTERNATIVES {
     raise model_error(
       "formula expansion in \{context} exceeds \{MAX_DNF_ALTERNATIVES} disjuncts",
@@ -329,19 +660,24 @@ fn dnf_union(
 }
 
 ///|
-/// The compiler owns the object/type/predicate context and interns atoms
-/// while walking formulas.
+/// The compiler owns the object/type/predicate/function context and interns
+/// atoms and fluents while walking formulas.
 priv struct Compiler {
   objects : Array[TypedName]
-  object_types : Map[String, String]
-  type_parents : Map[String, String]
+  object_types : Map[String, Array[String]]
+  type_parents : Map[String, Array[String]]
   predicates : Map[String, Predicate]
+  functions : Map[String, FunctionDecl]
+  /// Functions modified by some numeric effect; their values change
+  /// between states.
+  dynamic_functions : Map[String, Bool]
   table : AtomTable
+  ftable : FuncTable
 }
 
 ///|
 fn validate_type_decl(
-  parents : Map[String, String],
+  parents : Map[String, Array[String]],
   type_name : String,
   context : String,
 ) -> Unit raise PddlError {
@@ -356,35 +692,59 @@ fn validate_type_decl(
 ///|
 fn Compiler::validate_type(
   self : Compiler,
-  type_name : String,
+  types : Array[String],
   context : String,
 ) -> Unit raise PddlError {
-  validate_type_decl(self.type_parents, type_name, context)
+  for type_name in types {
+    validate_type_decl(self.type_parents, type_name, context)
+  }
 }
 
 ///|
-fn Compiler::is_subtype(
-  self : Compiler,
+fn type_matches_single(
+  parents : Map[String, Array[String]],
   child : String,
   parent : String,
 ) -> Bool {
   if parent == "object" {
     return true
   }
-  let mut current = child
+  let queue : Array[String] = [child]
+  let visited : Map[String, Bool] = Map([])
   let mut steps = 0
-  while steps <= self.type_parents.length() {
+  while queue.length() > 0 && steps <= parents.length() + 1 {
+    let current = queue.remove(0)
+    steps += 1
     if current == parent {
       return true
     }
-    if current == "object" {
-      return false
+    if visited.contains(current) {
+      continue
     }
-    current = match self.type_parents.get(current) {
-      Some(next) => next
-      None => return false
+    visited.set(current, true)
+    match parents.get(current) {
+      Some(next) =>
+        for p in next {
+          queue.push(p)
+        }
+      None => ()
     }
-    steps += 1
+  }
+  false
+}
+
+///|
+/// An object matches a type declaration when any of its declared types
+/// (an `(either ...)` is a union) is a subtype of the wanted type.
+fn type_matches(
+  parents : Map[String, Array[String]],
+  declared : Array[String],
+  wanted : String,
+) -> Bool {
+  for type_name in declared {
+    if type_matches_single(parents, type_name, wanted) {
+      return true
+    }
   }
   false
 }
@@ -394,24 +754,29 @@ fn Compiler::object_type(
   self : Compiler,
   name : String,
   context : String,
-) -> String raise PddlError {
+) -> Array[String] raise PddlError {
   match self.object_types.get(name) {
-    Some(type_name) => type_name
+    Some(types) => types
     None => raise model_error("unknown object '\{name}' in \{context}")
   }
 }
 
 ///|
-fn Compiler::objects_of_type(
+fn Compiler::objects_of_types(
   self : Compiler,
-  type_name : String,
+  types : Array[String],
   context : String,
 ) -> Array[TypedName] raise PddlError {
-  self.validate_type(type_name, context)
+  self.validate_type(types, context)
   let result : Array[TypedName] = []
-  for object_ in self.objects {
-    if self.is_subtype(object_.type_name, type_name) {
-      result.push(object_)
+  let seen : Map[String, Bool] = Map([])
+  for type_name in types {
+    for object_ in self.objects {
+      if !seen.contains(object_.name) &&
+        type_matches(self.type_parents, object_.types, type_name) {
+        seen.set(object_.name, true)
+        result.push(object_)
+      }
     }
   }
   result
@@ -440,6 +805,50 @@ fn Compiler::resolve_term(
 }
 
 ///|
+/// Shared argument resolution and type checking for predicates and
+/// functions.
+fn Compiler::check_args(
+  self : Compiler,
+  entity : String,
+  params : Array[TypedName],
+  args : Array[Term],
+  env : Map[String, String],
+  context : String,
+) -> Array[String] raise PddlError {
+  if args.length() != params.length() {
+    raise model_error(
+      "'\{entity}' expects \{params.length()} argument(s), but \{args.length()} were given in \{context}",
+    )
+  }
+  let resolved : Array[String] = []
+  for i in 0..<args.length() {
+    let object_ = self.resolve_term(args[i], env, context)
+    let actual_types = self.object_type(object_, context)
+    let expected = params[i].types
+    self.validate_type(expected, entity)
+    let mut ok = false
+    for expected_type in expected {
+      if type_matches(self.type_parents, actual_types, expected_type) {
+        ok = true
+        break
+      }
+    }
+    if !ok {
+      let actual_text = if actual_types.length() == 1 {
+        actual_types[0]
+      } else {
+        "either"
+      }
+      raise model_error(
+        "'\{entity}' expects argument \{i + 1} of type '\{expected[0]}', but '\{object_}' has type '\{actual_text}' (in \{context})",
+      )
+    }
+    resolved.push(object_)
+  }
+  resolved
+}
+
+///|
 /// Resolves and type-checks a predicate application.
 fn Compiler::check_atom(
   self : Compiler,
@@ -451,24 +860,13 @@ fn Compiler::check_atom(
     Some(predicate) => predicate
     None => raise model_error("unknown predicate '\{atom.name}' in \{context}")
   }
-  if atom.args.length() != predicate.params.length() {
-    raise model_error(
-      "predicate '\{atom.name}' expects \{predicate.params.length()} argument(s), but \{atom.args.length()} were given in \{context}",
-    )
-  }
-  let args : Array[String] = []
-  for i in 0..<atom.args.length() {
-    let object_ = self.resolve_term(atom.args[i], env, context)
-    let actual_type = self.object_type(object_, context)
-    let expected_type = predicate.params[i].type_name
-    self.validate_type(expected_type, "predicate '\{atom.name}'")
-    if !self.is_subtype(actual_type, expected_type) {
-      raise model_error(
-        "predicate '\{atom.name}' expects argument \{i + 1} of type '\{expected_type}', but '\{object_}' has type '\{actual_type}' (in \{context})",
-      )
-    }
-    args.push(object_)
-  }
+  let args = self.check_args(
+    "predicate '\{atom.name}'",
+    predicate.params,
+    atom.args,
+    env,
+    context,
+  )
   (predicate.name, args)
 }
 
@@ -484,6 +882,124 @@ fn Compiler::intern_atom(
 }
 
 ///|
+/// Resolves and type-checks a function application and interns its ground
+/// fluent. `total-cost` never becomes a fluent: it is tracked as the plan
+/// cost outside the state.
+fn Compiler::intern_fluent(
+  self : Compiler,
+  atom : PAtom,
+  env : Map[String, String],
+  context : String,
+) -> Int32 raise PddlError {
+  if atom.name == "total-cost" {
+    raise model_error(
+      "total-cost cannot appear in \{context}; it is the plan cost and is not a state fluent",
+    )
+  }
+  let function = match self.functions.get(atom.name) {
+    Some(function) => function
+    None => raise model_error("unknown function '\{atom.name}' in \{context}")
+  }
+  let args = self.check_args(
+    "function '\{atom.name}'",
+    function.params,
+    atom.args,
+    env,
+    context,
+  )
+  self.ftable.intern(function.name, args)
+}
+
+///|
+/// Rejects compiled cost expressions that read a fluent some action
+/// modifies; action costs must be static so that they stay constant per
+/// ground action. Static functions (assigned in `:init` and never changed)
+/// are fine and are the standard way to feed per-model constants into
+/// action costs.
+fn Compiler::assert_static_cost(
+  self : Compiler,
+  value : NumValue,
+  context : String,
+) -> Unit raise PddlError {
+  let stack : Array[NumValue] = [value]
+  while stack.length() > 0 {
+    let current = stack.unsafe_pop()
+    match current {
+      NConst(_) => ()
+      NFluent(id) => {
+        let name = if id >= 0 && id < self.ftable.funcs.length() {
+          self.ftable.funcs[id].predicate
+        } else {
+          ""
+        }
+        if self.dynamic_functions.contains(name) {
+          let rendered = if id >= 0 && id < self.ftable.funcs.length() {
+            self.ftable.funcs[id].render()
+          } else {
+            "<fluent #\{id}>"
+          }
+          raise model_error(
+            "state-dependent action cost in \{context}: '\{rendered}' changes during execution; action costs may only read static functions",
+          )
+        }
+      }
+      NNeg(inner) => stack.push(inner)
+      NAdd(l, r) => {
+        stack.push(l)
+        stack.push(r)
+      }
+      NSub(l, r) => {
+        stack.push(l)
+        stack.push(r)
+      }
+      NMul(l, r) => {
+        stack.push(l)
+        stack.push(r)
+      }
+      NDiv(l, r) => {
+        stack.push(l)
+        stack.push(r)
+      }
+    }
+  }
+}
+
+///|
+/// Compiles a numeric expression to a ground `NumValue`.
+fn Compiler::compile_num_expr(
+  self : Compiler,
+  node : NumExpr,
+  env : Map[String, String],
+  context : String,
+) -> NumValue raise PddlError {
+  match node {
+    NumLit(value) => NConst(value)
+    NumFunc(atom) => NFluent(self.intern_fluent(atom, env, context))
+    NumNeg(inner) => NNeg(self.compile_num_expr(inner, env, context))
+    NumAdd(l, r) =>
+      NAdd(
+        self.compile_num_expr(l, env, context),
+        self.compile_num_expr(r, env, context),
+      )
+    NumSub(l, r) =>
+      NSub(
+        self.compile_num_expr(l, env, context),
+        self.compile_num_expr(r, env, context),
+      )
+    NumMul(l, r) =>
+      NMul(
+        self.compile_num_expr(l, env, context),
+        self.compile_num_expr(r, env, context),
+      )
+    NumDiv(l, r) =>
+      NDiv(
+        self.compile_num_expr(l, env, context),
+        self.compile_num_expr(r, env, context),
+      )
+  }
+}
+
+///|
 /// Compiles a formula to DNF, optionally under negation.
 fn Compiler::compile_formula(
   self : Compiler,
@@ -491,12 +1007,12 @@ fn Compiler::compile_formula(
   env : Map[String, String],
   negate : Bool,
   context : String,
-) -> Array[Array[Literal]] raise PddlError {
+) -> Array[Array[CondLit]] raise PddlError {
   match node {
     Atom(atom) => {
       let id = self.intern_atom(atom, env, context)
-      let literal = if negate { Negative(id) } else { Positive(id) }
-      let alternative : Array[Literal] = [literal]
+      let literal = if negate { Neg(id) } else { Pos(id) }
+      let alternative : Array[CondLit] = [literal]
       [alternative]
     }
     Not(inner) => self.compile_formula(inner, env, !negate, context)
@@ -522,12 +1038,19 @@ fn Compiler::compile_formula(
       let equal = left == right
       let truth = if negate { !equal } else { equal }
       if truth {
-        let dnf : Array[Array[Literal]] = [[]]
+        let dnf : Array[Array[CondLit]] = [[]]
         dnf
       } else {
-        let dnf : Array[Array[Literal]] = []
+        let dnf : Array[Array[CondLit]] = []
         dnf
       }
+    }
+    Compare(op, l, r) => {
+      let left = self.compile_num_expr(l, env, context)
+      let right = self.compile_num_expr(r, env, context)
+      let op = if negate { compare_op_flip(op) } else { op }
+      let alternative : Array[CondLit] = [Num(op, left, right)]
+      [alternative]
     }
   }
 }
@@ -540,9 +1063,9 @@ fn Compiler::compile_and_or(
   env : Map[String, String],
   negate : Bool,
   context : String,
-) -> Array[Array[Literal]] raise PddlError {
+) -> Array[Array[CondLit]] raise PddlError {
   let conjunction = is_and != negate
-  let mut result : Array[Array[Literal]] = if conjunction { [[]] } else { [] }
+  let mut result : Array[Array[CondLit]] = if conjunction { [[]] } else { [] }
   for child in children {
     let part = self.compile_formula(child, env, negate, context)
     if conjunction {
@@ -563,7 +1086,7 @@ fn Compiler::compile_quantifier(
   universal : Bool,
   negate : Bool,
   context : String,
-) -> Array[Array[Literal]] raise PddlError {
+) -> Array[Array[CondLit]] raise PddlError {
   self.quantifier_step(vars, 0, body, env, universal, negate, context)
 }
 
@@ -577,18 +1100,18 @@ fn Compiler::quantifier_step(
   universal : Bool,
   negate : Bool,
   context : String,
-) -> Array[Array[Literal]] raise PddlError {
+) -> Array[Array[CondLit]] raise PddlError {
   if index >= vars.length() {
     return self.compile_formula(body, env, negate, context)
   }
   let variable = vars[index]
   let quantifier_name = if universal { "forall" } else { "exists" }
-  let candidates = self.objects_of_type(
-    variable.type_name,
+  let candidates = self.objects_of_types(
+    variable.types,
     "\{quantifier_name} in \{context}",
   )
   let conjunction = universal != negate
-  let mut result : Array[Array[Literal]] = if conjunction { [[]] } else { [] }
+  let mut result : Array[Array[CondLit]] = if conjunction { [[]] } else { [] }
   for object_ in candidates {
     let inner = env.copy()
     inner.set(variable.name, object_.name)
@@ -613,7 +1136,7 @@ fn Compiler::quantifier_step(
 ///|
 priv struct EffectBuilder {
   effects : Array[GroundEffect]
-  mut cost : Int64
+  mut cost : Double
 }
 
 ///|
@@ -623,22 +1146,33 @@ fn Compiler::compile_effects(
   env : Map[String, String],
   context : String,
 ) -> EffectBuilder raise PddlError {
-  let builder = { effects: [], cost: 0L, }
-  let condition : Array[Array[Literal]] = [[]]
+  let builder = { effects: [], cost: 0.0, }
+  let condition : Array[Array[CondLit]] = [[]]
   self.collect_effect(effect, condition, env, context, builder)
   builder
 }
 
 ///|
-fn is_unconditional(condition : Array[Array[Literal]]) -> Bool {
+fn is_unconditional(condition : Array[Array[CondLit]]) -> Bool {
   condition.length() == 1 && condition[0].length() == 0
+}
+
+///|
+fn num_op_name(op : NumOp) -> String {
+  match op {
+    OpIncrease => "increase"
+    OpDecrease => "decrease"
+    OpAssign => "assign"
+    OpScaleUp => "scale-up"
+    OpScaleDown => "scale-down"
+  }
 }
 
 ///|
 fn Compiler::collect_effect(
   self : Compiler,
   effect : Effect,
-  condition : Array[Array[Literal]],
+  condition : Array[Array[CondLit]],
   env : Map[String, String],
   context : String,
   builder : EffectBuilder,
@@ -646,11 +1180,11 @@ fn Compiler::collect_effect(
   match effect {
     AddEffect(atom) => {
       let id = self.intern_atom(atom, env, context)
-      builder.effects.push({ condition, adds: [id], deletes: [], })
+      builder.effects.push({ condition, adds: [id], deletes: [], numeric: [], })
     }
     DeleteEffect(atom) => {
       let id = self.intern_atom(atom, env, context)
-      builder.effects.push({ condition, adds: [], deletes: [id], })
+      builder.effects.push({ condition, adds: [], deletes: [id], numeric: [], })
     }
     AndEffect(children) =>
       for child in children {
@@ -667,27 +1201,54 @@ fn Compiler::collect_effect(
         self.collect_effect(body, combined, env, context, builder)
       }
     }
-    IncreaseEffect(fluent, amount) => {
-      if fluent != "total-cost" {
-        raise model_error(
-          "unsupported numeric fluent '\{fluent}' in \{context}",
-        )
+    NumEffect(op, fluent, expr) =>
+      if fluent.name == "total-cost" {
+        match op {
+          OpIncrease => {
+            if !is_unconditional(condition) {
+              raise model_error(
+                "conditional action cost in \{context}; increase must be unconditional",
+              )
+            }
+            let compiled = self.compile_num_expr(expr, env, context)
+            self.assert_static_cost(compiled, context)
+            let amount = eval_num_value(compiled, self.ftable.values)
+            if amount < 0.0 {
+              raise model_error("negative action cost in \{context}")
+            }
+            if builder.cost > MAX_COST_VALUE - amount {
+              raise model_error(
+                "action cost in \{context} exceeds the supported maximum \{format_number(MAX_COST_VALUE)}",
+              )
+            }
+            builder.cost = builder.cost + amount
+          }
+          _ =>
+            raise model_error(
+              "'\{num_op_name(op)}' on total-cost in \{context}; total-cost may only be increased",
+            )
+        }
+      } else {
+        let id = self.intern_fluent(fluent, env, context)
+        let rhs = self.compile_num_expr(expr, env, context)
+        builder.effects.push({
+          condition,
+          adds: [],
+          deletes: [],
+          numeric: [{ op: ground_num_op(op), fluent: id, rhs, }],
+        })
       }
-      if !is_unconditional(condition) {
-        raise model_error(
-          "conditional action cost in \{context}; increase must be unconditional",
-        )
-      }
-      if amount < 0L {
-        raise model_error("negative action cost in \{context}")
-      }
-      if builder.cost > MAX_COST_VALUE - amount {
-        raise model_error(
-          "action cost in \{context} exceeds the supported maximum \{MAX_COST_VALUE}",
-        )
-      }
-      builder.cost += amount
-    }
+  }
+}
+
+///|
+fn ground_num_op(op : NumOp) -> GroundNumOp {
+  match op {
+    OpIncrease => GInc
+    OpDecrease => GDec
+    OpAssign => GAssign
+    OpScaleUp => GScaleUp
+    OpScaleDown => GScaleDown
   }
 }
 
@@ -697,7 +1258,7 @@ fn Compiler::collect_forall_effect(
   vars : Array[TypedName],
   index : Int32,
   body : Effect,
-  condition : Array[Array[Literal]],
+  condition : Array[Array[CondLit]],
   env : Map[String, String],
   context : String,
   builder : EffectBuilder,
@@ -707,8 +1268,8 @@ fn Compiler::collect_forall_effect(
     return
   }
   let variable = vars[index]
-  let candidates = self.objects_of_type(
-    variable.type_name,
+  let candidates = self.objects_of_types(
+    variable.types,
     "forall effect in \{context}",
   )
   for object_ in candidates {
@@ -760,8 +1321,8 @@ fn Compiler::enumerate_params(
     return
   }
   let param = params[index]
-  let candidates = self.objects_of_type(
-    param.type_name,
+  let candidates = self.objects_of_types(
+    param.types,
     "parameter '\{param.name}' of \{context}",
   )
   for object_ in candidates {
@@ -775,7 +1336,7 @@ fn Compiler::enumerate_params(
 fn Compiler::ground_action(
   self : Compiler,
   action : Action,
-  base_cost : Int64,
+  base_cost : Double,
 ) -> Array[GroundAction] raise PddlError {
   let context = "action '\{action.name}'"
   let bindings : Array[Map[String, String]] = []
@@ -794,9 +1355,10 @@ fn Compiler::ground_action(
     for param in action.params {
       args.push(binding_of(binding, param.name, context))
     }
-    if compiled_effects.cost > MAX_COST_VALUE - base_cost {
+    let cost = base_cost + compiled_effects.cost
+    if cost > MAX_COST_VALUE {
       raise model_error(
-        "action cost in \{context} exceeds the supported maximum \{MAX_COST_VALUE}",
+        "action cost in \{context} exceeds the supported maximum \{format_number(MAX_COST_VALUE)}",
       )
     }
     result.push({
@@ -805,29 +1367,77 @@ fn Compiler::ground_action(
       args,
       precondition,
       effects: compiled_effects.effects,
-      cost: base_cost + compiled_effects.cost,
+      cost,
     })
   }
   result
 }
 
 ///|
-fn effect_has_increase(effect : Effect) -> Bool {
+fn effect_changes_functions(
+  effect : Effect,
+  changed : Map[String, Bool],
+) -> Unit {
   match effect {
-    IncreaseEffect(_, _) => true
+    AddEffect(_) => ()
+    DeleteEffect(_) => ()
+    AndEffect(children) =>
+      for child in children {
+        effect_changes_functions(child, changed)
+      }
+    ForallEffect(_, body) => effect_changes_functions(body, changed)
+    WhenEffect(_, body) => effect_changes_functions(body, changed)
+    NumEffect(_, fluent, _) => changed.set(fluent.name, true)
+  }
+}
+
+///|
+fn effect_increases_total_cost(effect : Effect) -> Bool {
+  match effect {
+    NumEffect(op, fluent, _) => op is OpIncrease && fluent.name == "total-cost"
     AddEffect(_) => false
     DeleteEffect(_) => false
     AndEffect(children) => {
       for child in children {
-        if effect_has_increase(child) {
+        if effect_increases_total_cost(child) {
           return true
         }
       }
       false
     }
-    ForallEffect(_, body) => effect_has_increase(body)
-    WhenEffect(_, body) => effect_has_increase(body)
+    ForallEffect(_, body) => effect_increases_total_cost(body)
+    WhenEffect(_, body) => effect_increases_total_cost(body)
   }
+}
+
+///|
+fn num_expr_mentions_total_cost(expr : NumExpr) -> Bool {
+  let stack : Array[NumExpr] = [expr]
+  while stack.length() > 0 {
+    let current = stack.unsafe_pop()
+    match current {
+      NumLit(_) => ()
+      NumFunc(atom) => if atom.name == "total-cost" { return true }
+      NumNeg(inner) => stack.push(inner)
+      NumAdd(l, r) => {
+        stack.push(l)
+        stack.push(r)
+      }
+      NumSub(l, r) => {
+        stack.push(l)
+        stack.push(r)
+      }
+      NumMul(l, r) => {
+        stack.push(l)
+        stack.push(r)
+      }
+      NumDiv(l, r) => {
+        stack.push(l)
+        stack.push(r)
+      }
+    }
+  }
+  false
 }
 
 ///|
@@ -842,26 +1452,21 @@ fn domain_uses_action_costs(
   if problem.requirements.contains(":action-costs") {
     return true
   }
-  if domain.functions.length() > 0 || init_cost_seen {
+  if init_cost_seen {
     return true
   }
-  if problem.metric is Some(_) {
-    return true
+  match problem.metric {
+    Some(Metric(_, expr)) => num_expr_mentions_total_cost(expr)
+    None => false
   }
-  for action in domain.actions {
-    if effect_has_increase(action.effect) {
-      return true
-    }
-  }
-  false
 }
 
 ///|
-fn build_hierarchy(types : Array[TypeDecl]) -> Map[String, String] {
-  let parents : Map[String, String] = Map([])
-  parents.set("object", "object")
+fn build_hierarchy(types : Array[TypeDecl]) -> Map[String, Array[String]] {
+  let parents : Map[String, Array[String]] = Map([])
+  parents.set("object", ["object"])
   for decl in types {
-    parents.set(decl.name, decl.parent)
+    parents.set(decl.name, decl.parents)
   }
   parents
 }
@@ -870,18 +1475,20 @@ fn build_hierarchy(types : Array[TypeDecl]) -> Map[String, String] {
 fn add_objects(
   entries : Array[TypedName],
   source : String,
-  parents : Map[String, String],
+  parents : Map[String, Array[String]],
   objects : Array[TypedName],
-  types : Map[String, String],
+  types : Map[String, Array[String]],
   seen : Map[String, Bool],
 ) -> Unit raise PddlError {
   for entry in entries {
-    validate_type_decl(parents, entry.type_name, "\{source} '\{entry.name}'")
+    for type_name in entry.types {
+      validate_type_decl(parents, type_name, "\{source} '\{entry.name}'")
+    }
     if seen.contains(entry.name) {
       raise model_error("object '\{entry.name}' is declared more than once")
     }
     seen.set(entry.name, true)
-    types.set(entry.name, entry.type_name)
+    types.set(entry.name, entry.types)
     objects.push(entry)
   }
 }
@@ -890,10 +1497,10 @@ fn add_objects(
 fn collect_objects(
   constants : Array[TypedName],
   problem_objects : Array[TypedName],
-  parents : Map[String, String],
-) -> (Array[TypedName], Map[String, String]) raise PddlError {
+  parents : Map[String, Array[String]],
+) -> (Array[TypedName], Map[String, Array[String]]) raise PddlError {
   let objects : Array[TypedName] = []
-  let types : Map[String, String] = Map([])
+  let types : Map[String, Array[String]] = Map([])
   let seen : Map[String, Bool] = Map([])
   add_objects(constants, ":constants", parents, objects, types, seen)
   add_objects(problem_objects, ":objects", parents, objects, types, seen)
@@ -903,7 +1510,7 @@ fn collect_objects(
 ///|
 /// Grounds a domain against a problem. Raises `PddlError` with an
 /// `InvalidModel` payload when the two files disagree, a type is unknown,
-/// or the supported subset is exceeded.
+/// or the supported endpoint is exceeded.
 pub fn ground(
   domain : Domain,
   problem : Problem,
@@ -921,32 +1528,54 @@ pub fn ground(
   )
   for predicate in domain.predicates {
     for param in predicate.params {
-      validate_type_decl(
-        parents,
-        param.type_name,
-        "predicate '\{predicate.name}'",
-      )
-    }
-  }
-  for action in domain.actions {
-    for param in action.params {
-      validate_type_decl(parents, param.type_name, "action '\{action.name}'")
+      for type_name in param.types {
+        validate_type_decl(parents, type_name, "predicate '\{predicate.name}'")
+      }
     }
   }
   let predicates : Map[String, Predicate] = Map([])
   for predicate in domain.predicates {
     predicates.set(predicate.name, predicate)
   }
+  let functions : Map[String, FunctionDecl] = Map([])
+  for function in domain.functions {
+    if predicates.contains(function.name) {
+      raise model_error(
+        "function '\{function.name}' shares its name with a predicate",
+      )
+    }
+    functions.set(function.name, function)
+  }
+  let dynamic_functions : Map[String, Bool] = Map([])
+  dynamic_functions.set("total-cost", true)
+  for action in domain.actions {
+    for param in action.params {
+      for type_name in param.types {
+        validate_type_decl(parents, type_name, "action '\{action.name}'")
+      }
+    }
+    effect_changes_functions(action.effect, dynamic_functions)
+  }
+  for function in domain.functions {
+    for param in function.params {
+      for type_name in param.types {
+        validate_type_decl(parents, type_name, "function '\{function.name}'")
+      }
+    }
+  }
   let compiler : Compiler = {
     objects,
     object_types,
     type_parents: parents,
     predicates,
+    functions,
+    dynamic_functions,
     table: AtomTable::make(),
+    ftable: FuncTable::make(),
   }
   let empty_env : Map[String, String] = Map([])
   let init_ids : Array[Int32] = []
-  let mut initial_cost = 0L
+  let mut initial_cost = 0.0
   let mut init_cost_seen = false
   for elem in problem.init {
     match elem {
@@ -954,25 +1583,52 @@ pub fn ground(
         let id = compiler.intern_atom(atom, empty_env, ":init")
         init_ids.push(id)
       }
-      InitCost(value) => {
-        if init_cost_seen {
-          raise model_error(
-            "multiple (= (total-cost) ...) assignments in :init",
-          )
+      InitFunc(atom, value) =>
+        if atom.name == "total-cost" {
+          if atom.args.length() > 0 {
+            raise model_error("total-cost takes no arguments in :init")
+          }
+          if init_cost_seen {
+            raise model_error(
+              "multiple (= (total-cost) ...) assignments in :init",
+            )
+          }
+          if value < 0.0 {
+            raise model_error("negative initial total-cost in :init")
+          }
+          if value > MAX_COST_VALUE {
+            raise model_error(
+              "initial total-cost in :init exceeds the supported maximum \{format_number(MAX_COST_VALUE)}",
+            )
+          }
+          initial_cost = value
+          init_cost_seen = true
+        } else {
+          let id = compiler.intern_fluent(atom, empty_env, ":init")
+          if compiler.ftable.assigned.contains(id) {
+            raise model_error(
+              "fluent '\{compiler.ftable.funcs[id].render()}' is assigned more than once in :init",
+            )
+          }
+          compiler.ftable.assigned.set(id, true)
+          compiler.ftable.values[id] = value
         }
-        if value < 0L {
-          raise model_error("negative initial total-cost in :init")
-        }
-        initial_cost = value
-        init_cost_seen = true
-      }
     }
   }
   let goal = compiler.compile_formula(problem.goal, empty_env, false, "goal")
-  let uses_action_costs = domain_uses_action_costs(
+  let mut uses_action_costs = domain_uses_action_costs(
     domain, problem, init_cost_seen,
   )
-  let base_cost = if uses_action_costs { 0L } else { 1L }
+  for action in domain.actions {
+    if effect_increases_total_cost(action.effect) {
+      uses_action_costs = true
+    }
+  }
+  let metric_minimize = match problem.metric {
+    Some(Metric(dir, _)) => dir is Minimize
+    None => true
+  }
+  let base_cost = if uses_action_costs { 0.0 } else { 1.0 }
   let actions : Array[GroundAction] = []
   for action in domain.actions {
     for grounded in compiler.ground_action(action, base_cost) {
@@ -984,25 +1640,107 @@ pub fn ground(
       actions.push(grounded)
     }
   }
-  for i in 0..<actions.length() {
-    let action = actions[i]
-    action.id = i
-    actions[i] = action
-  }
-  let initial = State::empty(compiler.table.atoms.length())
+  let initial = State::empty(
+    compiler.table.atoms.length(),
+    compiler.ftable.funcs.length(),
+  )
   for id in init_ids {
     initial.add(id)
+  }
+  for i in 0..<compiler.ftable.values.length() {
+    initial.set_fluent(i, compiler.ftable.values[i])
+  }
+  let reachable = relaxed_reachable_atoms(
+    actions,
+    initial,
+    compiler.table.atoms.length(),
+  )
+  let kept : Array[GroundAction] = []
+  for action in actions {
+    if action_is_relaxed_applicable(action, reachable) {
+      kept.push(action)
+    }
+  }
+  for i in 0..<kept.length() {
+    let action = kept[i]
+    action.id = i
+    kept[i] = action
   }
   {
     domain_name: domain.name,
     problem_name: problem.name,
     objects: compiler.objects,
     atoms: compiler.table.atoms,
-    actions,
+    funcs: compiler.ftable.funcs,
+    actions: kept,
     initial,
     initial_cost,
     goal,
     uses_action_costs,
     has_metric: problem.metric is Some(_),
+    metric_minimize,
   }
+}
+
+///|
+/// Forward delete-relaxation reachability over atoms, starting from the
+/// initial state. Negative literals and numeric constraints are ignored, so
+/// the result is a sound over-approximation of the reachable atom set.
+fn relaxed_reachable_atoms(
+  actions : Array[GroundAction],
+  initial : State,
+  num_atoms : Int32,
+) -> Array[Bool] {
+  let reachable = Array::make(num_atoms, false)
+  for atom in 0..<num_atoms {
+    if initial.contains(atom) {
+      reachable[atom] = true
+    }
+  }
+  let mut changed = true
+  while changed {
+    changed = false
+    for action in actions {
+      if !action_is_relaxed_applicable(action, reachable) {
+        continue
+      }
+      for effect in action.effects {
+        for atom in effect.adds {
+          if !reachable[atom] {
+            reachable[atom] = true
+            changed = true
+          }
+        }
+      }
+    }
+  }
+  reachable
+}
+
+///|
+/// True when some precondition disjunct has all of its positive atoms in
+/// the relaxed-reachable set. Actions without such a disjunct can never be
+/// applied in any reachable state and are dropped by grounding.
+fn action_is_relaxed_applicable(
+  action : GroundAction,
+  reachable : Array[Bool],
+) -> Bool {
+  for alternative in action.precondition {
+    let mut ok = true
+    for literal in alternative {
+      match literal {
+        Pos(atom) =>
+          if atom >= 0 && atom < reachable.length() && !reachable[atom] {
+            ok = false
+            break
+          }
+        Neg(_) => ()
+        Num(_, _, _) => ()
+      }
+    }
+    if ok {
+      return true
+    }
+  }
+  false
 }

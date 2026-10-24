@@ -20,7 +20,8 @@ test "benchmarks: parse, ground, solve, validate" {
     ignore(solve(grounded, HFF, GBFS))
   })
   let result = solve(grounded, HFF, GBFS)
-  let source = "; cost = \{result.cost}\n" + result.render_plan(grounded)
+  let source = "; cost = \{format_number(result.cost)}\n" +
+    result.render_plan(grounded)
   bencher.bench(name="validate_plan", count=10, () => {
     ignore(validate_plan(grounded, source))
   })
